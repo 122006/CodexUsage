@@ -60,6 +60,19 @@ function remaining(result: UsageResult | undefined, key: '5h' | '7d'): number | 
   return values.length ? Math.min(...values) : undefined
 }
 
+function moveWidgetToWorkArea(): void {
+  if (!widgetWindow || widgetWindow.isDestroyed()) return
+  const display = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()
+    ? screen.getDisplayMatching(mainWindow.getBounds())
+    : screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const area = display.workArea
+  const [width, height] = widgetWindow.getSize()
+  const margin = 12
+  const x = Math.max(area.x, area.x + area.width - width - margin)
+  const y = Math.max(area.y, area.y + area.height - height - margin)
+  widgetWindow.setPosition(Math.round(x), Math.round(y), false)
+}
+
 async function snapshot(): Promise<AppSnapshot> {
   const active = await currentId()
   const resultObject = Object.fromEntries(results)
@@ -78,7 +91,10 @@ async function broadcast(): Promise<void> {
   const active = value.accounts.find((account) => account.current)
   const showWidget = widgetReady && value.settings.showStatusWidget && active?.accountMode === 'codex'
   if (widgetWindow && !widgetWindow.isDestroyed()) {
-    if (showWidget && !widgetWindow.isVisible()) widgetWindow.showInactive()
+    if (showWidget && !widgetWindow.isVisible()) {
+      moveWidgetToWorkArea()
+      widgetWindow.showInactive()
+    }
     if (!showWidget && widgetWindow.isVisible()) widgetWindow.hide()
   }
   updateTray(value)
