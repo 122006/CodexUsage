@@ -3,7 +3,7 @@ import type { JSX } from 'react'
 import { Check, Clipboard, Copy, Download, ExternalLink, FileText, LogOut, MoreHorizontal, Plus, RefreshCw, Settings, Upload, X } from 'lucide-react'
 import { API_REASONING_EFFORTS, DEFAULT_API_MODEL, DEFAULT_API_WIRE_API, DEFAULT_MODEL_REASONING_EFFORT, normalizeModelReasoningEffort } from '../../shared/types'
 import type { AccountInput, AppSnapshot, ModelReasoningEffort, PublicAccount, ResetCreditDetail, UsageResult, UsageWindow } from '../../shared/types'
-import { calculateQuotaSlices } from './quota'
+import { calculateQuotaSlices, quotaSectorPath } from './quota'
 
 const empty: AppSnapshot = { accounts: [], results: {}, settings: { autoQuerySeconds: 900, showStatusWidget: true }, refreshingIds: [], logPath: '', codexHome: '' }
 const effortLabels: Record<ModelReasoningEffort, string> = { minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最大' }
@@ -32,12 +32,19 @@ function shortId(value?: string): string { return value ? (value.length > 18 ? `
 function displayDate(value?: string): string { return value ? new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '--' }
 
 function QuotaPie({ five, week, ratio, size = 50 }: { five?: number; week?: number; ratio: number; size?: number }): JSX.Element {
-  const { blue, pale, deep, blank } = calculateQuotaSlices(five, week, ratio)
-  const segments = [{ value: blue, color: '#5aa9ee' }, { value: pale, color: 'rgba(38,197,106,.20)' }, { value: deep, color: '#25bd67' }, { value: blank, color: '#eef2f4' }]
+  const { blue, pale, deep } = calculateQuotaSlices(five, week, ratio)
+  const segments = [{ value: blue, color: '#5aa9ee' }, { value: pale, color: 'rgba(38,197,106,.20)' }, { value: deep, color: '#25bd67' }]
   let offset = 0
-  return <svg className="quota-pie" width={size} height={size} viewBox="0 0 42 42" aria-label="额度分布">
-    <circle cx="21" cy="21" r="19.5" fill="#f2f5f6" stroke="#dce4e7" strokeWidth=".65" />
-    {segments.filter((item) => item.value > 0).map((item, index) => { const start = offset; offset += item.value; return <circle key={index} cx="21" cy="21" r="10" fill="none" stroke={item.color} strokeWidth="20" pathLength="100" strokeDasharray={`${item.value} ${100 - item.value}`} strokeDashoffset={25 - start} /> })}
+  return <svg className="quota-pie" width={size} height={size} viewBox="0 0 42 42" shapeRendering="geometricPrecision" aria-label="额度分布">
+    <circle cx="21" cy="21" r="19.5" fill="#eef2f4" />
+    {segments.map((item, index) => {
+      const start = offset; offset += item.value
+      if (item.value <= 0) return null
+      return item.value >= 100
+        ? <circle key={index} cx="21" cy="21" r="19.5" fill={item.color} />
+        : <path key={index} d={quotaSectorPath(start, item.value)} fill={item.color} />
+    })}
+    <circle cx="21" cy="21" r="19.5" fill="none" stroke="#dce4e7" strokeWidth=".65" />
   </svg>
 }
 

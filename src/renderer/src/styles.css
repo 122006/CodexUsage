@@ -83,7 +83,7 @@ button.primary:hover { background: #1166b8; }
 .widget-shell { -webkit-app-region: drag; height: 72px; margin: 2px; position: relative; display: grid; grid-template-columns: 62px 1fr; align-items: center; padding: 6px 10px 6px 6px; background: rgba(252,253,254,.96); border: 1px solid rgba(184,198,205,.7); border-radius: 7px; user-select: none; overflow: hidden; }
 .widget-empty { opacity: 0; }
 .widget-shell .spinner { left: 5px; top: 4px; z-index: 3; }
-.quota-pie { display: block; overflow: visible; transform: rotate(-90deg); }
+.quota-pie { display: block; overflow: visible; }
 .widget-values { min-width: 0; display: grid; gap: 8px; }
 .widget-shell.limits-1 .widget-values { gap: 0; }
 .widget-values > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }

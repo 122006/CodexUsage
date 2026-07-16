@@ -5,6 +5,19 @@ export interface QuotaSlices {
   blank: number
 }
 
+export function quotaSectorPath(startPercent: number, valuePercent: number, center = 21, radius = 19.5): string {
+  const start = Math.max(0, Math.min(100, startPercent))
+  const value = Math.max(0, Math.min(100 - start, valuePercent))
+  if (value <= 0 || value >= 100) return ''
+  const point = (percent: number): [number, number] => {
+    const angle = percent / 100 * Math.PI * 2 - Math.PI / 2
+    return [center + radius * Math.cos(angle), center + radius * Math.sin(angle)]
+  }
+  const [startX, startY] = point(start)
+  const [endX, endY] = point(start + value)
+  return `M ${center} ${center} L ${startX} ${startY} A ${radius} ${radius} 0 ${value > 50 ? 1 : 0} 1 ${endX} ${endY} Z`
+}
+
 function percent(value: number): number { return Math.max(0, Math.min(100, value)) }
 
 export function calculateQuotaSlices(five: number | undefined, week: number | undefined, ratio: number): QuotaSlices {
