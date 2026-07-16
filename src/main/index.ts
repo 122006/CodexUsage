@@ -162,7 +162,7 @@ function createWindows(): void {
   const saved = store.settings.statusWidgetPosition
   widgetWindow = new BrowserWindow({
     width: 300, height: 76, x: saved?.x ?? display.x + display.width - 312, y: saved?.y ?? display.y + display.height - 88,
-    frame: false, transparent: true, resizable: false, alwaysOnTop: true, skipTaskbar: true, hasShadow: true, show: false,
+    frame: false, transparent: true, backgroundColor: '#00000000', resizable: false, alwaysOnTop: true, skipTaskbar: true, hasShadow: false, show: false,
     webPreferences: { preload: join(__dirname, '../preload/index.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false }
   })
   widgetWindow.setTitle('Codex 额度浮窗')

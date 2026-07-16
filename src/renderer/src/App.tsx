@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { Check, Clipboard, Copy, Download, ExternalLink, FileText, LogOut, MoreHorizontal, Plus, RefreshCw, Settings, Upload, X } from 'lucide-react'
 import type { AccountInput, AppSnapshot, PublicAccount, ResetCreditDetail, UsageResult, UsageWindow } from '../../shared/types'
+import { calculateQuotaSlices } from './quota'
 
 const empty: AppSnapshot = { accounts: [], results: {}, settings: { autoQuerySeconds: 900, showStatusWidget: true }, refreshingIds: [], logPath: '', codexHome: '' }
 
@@ -29,12 +30,7 @@ function shortId(value?: string): string { return value ? (value.length > 18 ? `
 function displayDate(value?: string): string { return value ? new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '--' }
 
 function QuotaPie({ five, week, ratio, size = 50 }: { five?: number; week?: number; ratio: number; size?: number }): JSX.Element {
-  const fiveRemaining = Math.max(0, Math.min(100, five ?? 0))
-  const share = Math.max(0, Math.min(100, ratio)) / 100
-  const deep = Math.max(0, share * fiveRemaining)
-  const pale = Math.max(0, share * (100 - fiveRemaining))
-  const blue = Math.max(0, (week ?? 0) - deep)
-  const blank = Math.max(0, 100 - blue - deep - pale)
+  const { blue, pale, deep, blank } = calculateQuotaSlices(five, week, ratio)
   const segments = [{ value: blue, color: '#5aa9ee' }, { value: pale, color: 'rgba(38,197,106,.20)' }, { value: deep, color: '#25bd67' }, { value: blank, color: '#eef2f4' }]
   let offset = 0
   return <svg className="quota-pie" width={size} height={size} viewBox="0 0 42 42" aria-label="额度分布">
