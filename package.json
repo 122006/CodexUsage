@@ -1,0 +1,71 @@
+{
+  "name": "codex-usage-panel",
+  "version": "2.0.1",
+  "private": true,
+  "description": "跨平台 Codex 额度与账号管理面板",
+  "main": "out/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "package": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:mac": "npm run build && electron-builder --mac zip --x64 --arm64 --publish never",
+    "dist:mac:x64": "npm run build && electron-builder --mac zip --x64 --publish never",
+    "dist:mac:arm64": "npm run build && electron-builder --mac zip --arm64 --publish never"
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "^3.0.2",
+    "@electron-toolkit/utils": "^4.0.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.3",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^3.0.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  },
+  "build": {
+    "appId": "com.codex.usage-panel",
+    "productName": "CodexUsage",
+    "asar": true,
+    "files": [
+      "out/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "resources/icon.png",
+      "artifactName": "CodexUsage-${version}-Windows-Setup.${ext}"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "resources/icon.png",
+      "category": "public.app-category.utilities",
+      "artifactName": "CodexUsage-${version}-macOS-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "resources/icon.png",
+      "category": "Utility",
+      "artifactName": "CodexUsage-${version}-Linux-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
