@@ -67,9 +67,8 @@ function moveWidgetToWorkArea(): void {
     : screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
   const area = display.workArea
   const [width, height] = widgetWindow.getSize()
-  const margin = 12
-  const x = Math.max(area.x, area.x + area.width - width - margin)
-  const y = Math.max(area.y, area.y + area.height - height - margin)
+  const x = Math.max(area.x, area.x + area.width - width - 12)
+  const y = Math.max(area.y, area.y + area.height - height)
   widgetWindow.setPosition(Math.round(x), Math.round(y), false)
 }
 
