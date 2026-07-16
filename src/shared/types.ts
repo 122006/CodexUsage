@@ -1,7 +1,8 @@
 export type AccountMode = 'codex' | 'api'
-export const API_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const
+export const API_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 export type ModelReasoningEffort = typeof API_REASONING_EFFORTS[number]
 export const DEFAULT_API_MODEL = 'gpt-5.6-sol'
+export const DEFAULT_API_WIRE_API = 'responses'
 export const DEFAULT_MODEL_REASONING_EFFORT: ModelReasoningEffort = 'high'
 export function normalizeModelReasoningEffort(value: unknown): ModelReasoningEffort {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : ''
@@ -22,6 +23,7 @@ export interface Account {
   accountMode: AccountMode
   apiEndpoint?: string
   apiModel?: string
+  apiWireApi?: string
   modelReasoningEffort?: ModelReasoningEffort
   accessToken?: string
   apiKey?: string
@@ -79,6 +81,7 @@ export interface AccountInput {
   email?: string
   apiEndpoint?: string
   apiModel?: string
+  apiWireApi?: string
   modelReasoningEffort?: ModelReasoningEffort
   apiKey?: string
   fiveHourWeekPercent?: number

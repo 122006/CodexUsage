@@ -6,9 +6,9 @@ import { copyFile, mkdir, open, readFile, readdir, rename, stat, unlink, writeFi
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
-import { DEFAULT_API_MODEL, DEFAULT_MODEL_REASONING_EFFORT, normalizeModelReasoningEffort } from '../shared/types'
+import { DEFAULT_API_MODEL, DEFAULT_API_WIRE_API, DEFAULT_MODEL_REASONING_EFFORT, normalizeModelReasoningEffort } from '../shared/types'
 import type { Account, AccountInput, AccountMode, SwitchResult } from '../shared/types'
-import { customEndpoint, rootModel, rootModelReasoningEffort, rootProvider, stripManagedConfig, validApiConfig, validCodexConfig } from './codex-config'
+import { customEndpoint, customWireApi, rootModel, rootModelReasoningEffort, rootProvider, stripManagedConfig, validApiConfig, validCodexConfig } from './codex-config'
 import { identityFromTokens } from './store'
 
 const execFileAsync = promisify(execFile)
@@ -53,6 +53,7 @@ export async function importCurrentInput(): Promise<AccountInput> {
     return {
       accountMode: 'api', label: '当前 API 账号', apiKey, apiEndpoint,
       apiModel: rootModel(config) ?? DEFAULT_API_MODEL,
+      apiWireApi: customWireApi(config) ?? DEFAULT_API_WIRE_API,
       modelReasoningEffort: normalizeModelReasoningEffort(rootModelReasoningEffort(config))
     }
   }
@@ -71,11 +72,12 @@ async function applyConfig(account: Account, previousApi: boolean): Promise<stri
     if (!previousApi && !existsSync(backupPath)) await atomicWrite(backupPath, `${JSON.stringify({ config: current }, null, 2)}\n`)
     const base = stripManagedConfig(current, 'all')
     const model = account.apiModel ?? DEFAULT_API_MODEL
+    const wireApi = account.apiWireApi ?? DEFAULT_API_WIRE_API
     const effort = account.modelReasoningEffort ?? DEFAULT_MODEL_REASONING_EFFORT
-    const managed = `model_provider = "custom"\nmodel = ${JSON.stringify(model)}\nmodel_reasoning_effort = ${JSON.stringify(effort)}\n\n[model_providers.custom]\nname = "custom"\nbase_url = ${JSON.stringify(account.apiEndpoint)}\nwire_api = "responses"\nrequires_openai_auth = true\n`
+    const managed = `model_provider = "custom"\nmodel = ${JSON.stringify(model)}\nmodel_reasoning_effort = ${JSON.stringify(effort)}\n\n[model_providers.custom]\nname = "custom"\nbase_url = ${JSON.stringify(account.apiEndpoint)}\nwire_api = ${JSON.stringify(wireApi)}\nrequires_openai_auth = true\n`
     await atomicWrite(configPath, `${managed}\n${base}`)
     const written = await readFile(configPath, 'utf8')
-    if (!validApiConfig(written, account.apiEndpoint ?? '', model, effort)) throw new Error('API 配置写入后校验失败，config.toml 未形成完整的 custom provider、模型和推理强度配置')
+    if (!validApiConfig(written, account.apiEndpoint ?? '', model, effort, wireApi)) throw new Error('API 配置写入后校验失败，config.toml 未形成完整的 custom provider、模型、推理强度和接口协议配置')
     return 'custom'
   }
   const backup = await readJson(backupPath)

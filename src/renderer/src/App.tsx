@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { Check, Clipboard, Copy, Download, ExternalLink, FileText, LogOut, MoreHorizontal, Plus, RefreshCw, Settings, Upload, X } from 'lucide-react'
-import { API_REASONING_EFFORTS, DEFAULT_API_MODEL, DEFAULT_MODEL_REASONING_EFFORT, normalizeModelReasoningEffort } from '../../shared/types'
+import { API_REASONING_EFFORTS, DEFAULT_API_MODEL, DEFAULT_API_WIRE_API, DEFAULT_MODEL_REASONING_EFFORT, normalizeModelReasoningEffort } from '../../shared/types'
 import type { AccountInput, AppSnapshot, ModelReasoningEffort, PublicAccount, ResetCreditDetail, UsageResult, UsageWindow } from '../../shared/types'
 import { calculateQuotaSlices } from './quota'
 
 const empty: AppSnapshot = { accounts: [], results: {}, settings: { autoQuerySeconds: 900, showStatusWidget: true }, refreshingIds: [], logPath: '', codexHome: '' }
-const effortLabels: Record<ModelReasoningEffort, string> = { minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '极高' }
+const effortLabels: Record<ModelReasoningEffort, string> = { minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最大' }
 
 function useSnapshot(): AppSnapshot {
   const [value, setValue] = useState(empty)
@@ -74,6 +74,7 @@ function AccountEditor({ account, onClose }: { account?: PublicAccount; onClose(
     const input: AccountInput = {
       id: account?.id, accountMode: mode, label: value('label'), email: value('email'), accountId: value('accountId'), accessToken: value('accessToken') || undefined,
       apiEndpoint: value('apiEndpoint'), apiKey: value('apiKey') || undefined, apiModel: value('apiModel') || undefined,
+      apiWireApi: value('apiWireApi') || undefined,
       modelReasoningEffort: normalizeModelReasoningEffort(value('modelReasoningEffort')),
       fiveHourWeekPercent: Number(value('ratio') || 16)
     }
@@ -82,7 +83,7 @@ function AccountEditor({ account, onClose }: { account?: PublicAccount; onClose(
   return <Modal title={account ? '编辑账号' : '添加账号'} onClose={onClose}><form ref={form} className="form" onSubmit={(event) => void submit(event)}>
     <div className="segmented"><button type="button" className={mode === 'codex' ? 'active' : ''} onClick={() => setMode('codex')}>Codex 账号</button><button type="button" className={mode === 'api' ? 'active' : ''} onClick={() => setMode('api')}>API 模式</button></div>
     <label><span>备注</span><input name="label" defaultValue={account?.label ?? ''} /></label>
-    {mode === 'codex' ? <><label><span>邮箱</span><input name="email" defaultValue={account?.email ?? ''} /></label><label><span>账户 ID</span><input name="accountId" defaultValue={account?.accountId ?? ''} /></label><label><span>Access Token</span><textarea name="accessToken" placeholder={account?.hasAccessToken ? '留空则保留现有 Token' : ''} required={!account?.hasAccessToken} /></label><label><span>5小时占周限</span><div className="suffix"><input name="ratio" type="number" min="0" max="100" step="0.1" defaultValue={account?.fiveHourWeekPercent ?? 16} /><i>%</i></div></label></> : <><label><span>API 端点</span><input name="apiEndpoint" defaultValue={account?.apiEndpoint ?? ''} required /></label><label><span>API 密钥</span><textarea name="apiKey" placeholder={account?.hasApiKey ? '留空则保留现有密钥' : ''} required={!account?.hasApiKey} /></label><label><span>模型</span><input name="apiModel" defaultValue={account?.apiModel ?? DEFAULT_API_MODEL} required /></label><label><span>推理强度</span><select name="modelReasoningEffort" defaultValue={account?.modelReasoningEffort ?? DEFAULT_MODEL_REASONING_EFFORT}>{API_REASONING_EFFORTS.map((effort) => <option key={effort} value={effort}>{effortLabels[effort]}（{effort}）</option>)}</select></label></>}
+    {mode === 'codex' ? <><label><span>邮箱</span><input name="email" defaultValue={account?.email ?? ''} /></label><label><span>账户 ID</span><input name="accountId" defaultValue={account?.accountId ?? ''} /></label><label><span>Access Token</span><textarea name="accessToken" placeholder={account?.hasAccessToken ? '留空则保留现有 Token' : ''} required={!account?.hasAccessToken} /></label><label><span>5小时占周限</span><div className="suffix"><input name="ratio" type="number" min="0" max="100" step="0.1" defaultValue={account?.fiveHourWeekPercent ?? 16} /><i>%</i></div></label></> : <><label><span>API 端点</span><input name="apiEndpoint" defaultValue={account?.apiEndpoint ?? ''} required /></label><label><span>API 密钥</span><textarea name="apiKey" placeholder={account?.hasApiKey ? '留空则保留现有密钥' : ''} required={!account?.hasApiKey} /></label><label><span>模型</span><input name="apiModel" defaultValue={account?.apiModel ?? DEFAULT_API_MODEL} required /></label><label><span>接口协议</span><input name="apiWireApi" defaultValue={account?.apiWireApi ?? DEFAULT_API_WIRE_API} required /></label><label><span>推理强度</span><select name="modelReasoningEffort" defaultValue={account?.modelReasoningEffort ?? DEFAULT_MODEL_REASONING_EFFORT}>{API_REASONING_EFFORTS.map((effort) => <option key={effort} value={effort}>{effortLabels[effort]}（{effort}）</option>)}</select></label></>}
     {error && <p className="error">{error}</p>}<footer><button type="button" onClick={onClose}>取消</button><button className="primary" disabled={busy}>{busy ? '保存中' : '保存'}</button></footer>
   </form></Modal>
 }

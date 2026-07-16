@@ -30,6 +30,10 @@ export function customEndpoint(config: string): string | undefined {
   return tableStringValue(config, 'model_providers.custom', 'base_url')
 }
 
+export function customWireApi(config: string): string | undefined {
+  return tableStringValue(config, 'model_providers.custom', 'wire_api')
+}
+
 export function rootModel(text: string): string | undefined {
   return rootStringValue(text, 'model')
 }
@@ -65,11 +69,11 @@ export function rootProvider(text: string): string | undefined {
   return rootStringValue(text, 'model_provider')
 }
 
-export function validApiConfig(text: string, endpoint: string, model: string, reasoningEffort: string): boolean {
+export function validApiConfig(text: string, endpoint: string, model: string, reasoningEffort: string, wireApi: string): boolean {
   return rootProvider(text)?.toLowerCase() === 'custom' && rootModel(text) === model && rootModelReasoningEffort(text)?.toLowerCase() === reasoningEffort.toLowerCase() &&
     tableStringValue(text, 'model_providers.custom', 'name')?.toLowerCase() === 'custom' &&
     normalizeEndpoint(customEndpoint(text)) === normalizeEndpoint(endpoint) &&
-    tableStringValue(text, 'model_providers.custom', 'wire_api')?.toLowerCase() === 'responses' &&
+    customWireApi(text) === wireApi &&
     /^\s*requires_openai_auth\s*=\s*true\s*(?:#.*)?$/im.test(text)
 }
 

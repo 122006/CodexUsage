@@ -222,6 +222,7 @@ function inputFromImport(raw: unknown): AccountInput | undefined {
     accessToken: String(item.accessToken ?? item.access_token ?? auth?.access_token ?? '') || undefined,
     apiKey, apiEndpoint: String(item.apiEndpoint ?? item.api_endpoint ?? item.base_url ?? '') || undefined,
     apiModel: String(item.apiModel ?? item.model ?? '') || undefined,
+    apiWireApi: String(item.apiWireApi ?? item.wireApi ?? item.wire_api ?? '') || undefined,
     modelReasoningEffort: mode === 'api' ? normalizeModelReasoningEffort(item.modelReasoningEffort ?? item.model_reasoning_effort) : undefined,
     authTokens: auth, fiveHourWeekPercent: Number(item.fiveHourWeekPercent ?? item.five_hour_week_percent ?? 16)
   }
