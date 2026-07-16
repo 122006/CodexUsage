@@ -132,6 +132,58 @@ npm run package # 生成当前平台的未安装目录
 npm run dist    # 生成当前平台的发行包
 ```
 
+## Node.js 版本错误
+
+如果启动时出现以下错误：
+
+```text
+SyntaxError: The requested module 'node:fs/promises' does not provide an export named 'constants'
+```
+
+说明当前终端实际使用的 Node.js 版本过旧。Windows PowerShell 先检查 Node.js 的版本和路径：
+
+```powershell
+where.exe node
+node --version
+npm --version
+```
+
+项目要求 Node.js 20+ 和 npm 10+。通过 WinGet 安装或升级 Node.js LTS：
+
+```powershell
+winget upgrade --id OpenJS.NodeJS.LTS -e
+# 如果尚未安装：winget install --id OpenJS.NodeJS.LTS -e
+```
+
+安装完成后关闭所有 PowerShell 或命令提示符窗口，重新打开终端并再次检查：
+
+```powershell
+where.exe node
+node --version
+npm --version
+```
+
+如果 `where.exe node` 返回多个路径，需要从系统 `PATH` 中移除旧 Node.js 路径，确保第一项是新版本。然后在项目目录重新安装依赖并运行：
+
+```powershell
+Set-Location CodexUsage
+if (Test-Path ".\node_modules") { Remove-Item -LiteralPath ".\node_modules" -Recurse -Force }
+npm ci
+npm run dev
+```
+
+macOS 或 Linux 使用以下命令确认实际 Node.js 路径，并在升级到 20+ 后重新安装依赖：
+
+```bash
+which -a node
+node --version
+npm --version
+cd CodexUsage
+rm -rf node_modules
+npm ci
+npm run dev
+```
+
 ## 本地文件
 
 账号数据和查询日志只保存在本机：

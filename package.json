@@ -5,7 +5,16 @@
   "description": "跨平台 Codex 额度与账号管理面板",
   "main": "out/main/index.js",
   "type": "module",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
+    "check:node": "node scripts/check-node.cjs",
+    "preinstall": "node scripts/check-node.cjs",
+    "predev": "node scripts/check-node.cjs",
+    "prebuild": "node scripts/check-node.cjs",
+    "prepreview": "node scripts/check-node.cjs",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
