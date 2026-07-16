@@ -2,6 +2,7 @@ import { app, safeStorage } from 'electron'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { DEFAULT_API_MODEL, normalizeModelReasoningEffort } from '../shared/types'
 import type { Account, AccountInput, AppSettings, PublicAccount, SecretValue } from '../shared/types'
 
 interface DiskStore {
@@ -105,6 +106,8 @@ export class AccountStore {
       accessToken,
       apiKey,
       apiEndpoint: text(item.apiEndpoint),
+      apiModel: mode === 'api' ? text(item.apiModel) ?? DEFAULT_API_MODEL : undefined,
+      modelReasoningEffort: mode === 'api' ? normalizeModelReasoningEffort(item.modelReasoningEffort) : undefined,
       accountId: text(item.accountId),
       email: text(item.email),
       source: text(item.source) ?? 'manual',
@@ -123,6 +126,7 @@ export class AccountStore {
       accounts: this.accounts.map((account) => ({
         id: account.id, label: account.label, accountId: account.accountId, email: account.email,
         source: account.source, accountMode: account.accountMode, apiEndpoint: account.apiEndpoint,
+        apiModel: account.apiModel, modelReasoningEffort: account.modelReasoningEffort,
         apiKey: encrypted(account.apiKey), accessToken: encrypted(account.accessToken),
         authTokens: account.authTokens ? encrypted(JSON.stringify(account.authTokens)) : null,
         fiveHourWeekPercent: account.fiveHourWeekPercent, addedAt: account.addedAt, updatedAt: account.updatedAt
@@ -148,7 +152,10 @@ export class AccountStore {
     const candidate: Account = {
       id: input.id ?? randomUUID(), label: text(input.label, input.email, identity.email) ?? (input.accountMode === 'api' ? 'API 账号' : 'Codex 账号'),
       accountMode: input.accountMode, accessToken: text(input.accessToken, input.authTokens?.access_token, existingById?.accessToken),
-      apiKey: text(input.apiKey, existingById?.apiKey), apiEndpoint: text(input.apiEndpoint, existingById?.apiEndpoint), accountId: text(input.accountId, identity.accountId, existingById?.accountId),
+      apiKey: text(input.apiKey, existingById?.apiKey), apiEndpoint: text(input.apiEndpoint, existingById?.apiEndpoint),
+      apiModel: input.accountMode === 'api' ? text(input.apiModel, existingById?.apiModel) ?? DEFAULT_API_MODEL : undefined,
+      modelReasoningEffort: input.accountMode === 'api' ? normalizeModelReasoningEffort(input.modelReasoningEffort ?? existingById?.modelReasoningEffort) : undefined,
+      accountId: text(input.accountId, identity.accountId, existingById?.accountId),
       email: text(input.email, identity.email), source: text(input.source) ?? source, authTokens: input.authTokens,
       fiveHourWeekPercent: Math.max(0, Math.min(100, number(input.fiveHourWeekPercent, 16))), addedAt: text(input.addedAt) ?? now, updatedAt: now
     }

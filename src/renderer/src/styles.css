@@ -2,7 +2,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 100%; min-height: 100vh; overflow: hidden; }
 html.widget-page, html.widget-page body, html.widget-page #root { background: transparent; }
-button, input, textarea { font: inherit; letter-spacing: 0; }
+button, input, textarea, select { font: inherit; letter-spacing: 0; }
 button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 1px solid #ccd5da; border-radius: 5px; background: #fff; color: #27333a; cursor: pointer; font-weight: 400; }
 button:hover { background: #f2f6f8; border-color: #aebdc5; }
 button:disabled { cursor: default; opacity: .55; }
@@ -63,8 +63,8 @@ button.primary:hover { background: #1166b8; }
 .form { display: grid; gap: 14px; padding: 18px; }
 .form label { display: grid; grid-template-columns: 112px 1fr; align-items: start; gap: 12px; font-size: 13px; }
 .form label > span { padding-top: 7px; color: #526169; }
-.form input, .form textarea, .transfer-text { width: 100%; border: 1px solid #cbd5da; border-radius: 4px; padding: 7px 9px; outline: none; }
-.form input:focus, .form textarea:focus, .transfer-text:focus { border-color: #1882d4; box-shadow: 0 0 0 2px rgba(24,130,212,.12); }
+.form input, .form textarea, .form select, .transfer-text { width: 100%; border: 1px solid #cbd5da; border-radius: 4px; padding: 7px 9px; outline: none; background: #fff; }
+.form input:focus, .form textarea:focus, .form select:focus, .transfer-text:focus { border-color: #1882d4; box-shadow: 0 0 0 2px rgba(24,130,212,.12); }
 .form textarea { min-height: 72px; resize: vertical; }
 .segmented { display: flex; justify-content: center; }
 .segmented button { border-radius: 0; min-width: 120px; }

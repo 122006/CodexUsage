@@ -30,8 +30,17 @@ export function customEndpoint(config: string): string | undefined {
   return tableStringValue(config, 'model_providers.custom', 'base_url')
 }
 
+export function rootModel(text: string): string | undefined {
+  return rootStringValue(text, 'model')
+}
+
+export function rootModelReasoningEffort(text: string): string | undefined {
+  return rootStringValue(text, 'model_reasoning_effort')
+}
+
 export function stripManagedConfig(text: string, rootMode: 'all' | 'managed'): string {
   const output: string[] = []
+  const managedRoot = rootProvider(text)?.toLowerCase() === 'custom' || tableExists(text, 'model_providers.custom')
   let table: string | undefined
   let custom = false
   for (const line of text.split(/\r?\n/)) {
@@ -39,10 +48,12 @@ export function stripManagedConfig(text: string, rootMode: 'all' | 'managed'): s
     if (header) { table = header[1].trim().toLowerCase(); custom = table === 'model_providers.custom' }
     if (custom) continue
     if (!table) {
-      const setting = line.match(/^\s*(model_provider|model)\s*=\s*["']([^"']+)["']/i)
+      const setting = line.match(/^\s*(model_reasoning_effort|model_provider|model)\s*=\s*["']([^"']+)["']/i)
       const key = setting?.[1].toLowerCase()
       const value = setting?.[2].toLowerCase()
-      if (setting && (rootMode === 'all' || value === (key === 'model_provider' ? 'custom' : 'gpt-5.6-sol'))) continue
+      if (setting && (rootMode === 'all' ||
+        (key === 'model_provider' && value === 'custom') ||
+        (managedRoot && (key === 'model' || key === 'model_reasoning_effort')))) continue
     }
     output.push(line)
   }
@@ -54,8 +65,8 @@ export function rootProvider(text: string): string | undefined {
   return rootStringValue(text, 'model_provider')
 }
 
-export function validApiConfig(text: string, endpoint: string): boolean {
-  return rootProvider(text)?.toLowerCase() === 'custom' && rootStringValue(text, 'model')?.toLowerCase() === 'gpt-5.6-sol' &&
+export function validApiConfig(text: string, endpoint: string, model: string, reasoningEffort: string): boolean {
+  return rootProvider(text)?.toLowerCase() === 'custom' && rootModel(text) === model && rootModelReasoningEffort(text)?.toLowerCase() === reasoningEffort.toLowerCase() &&
     tableStringValue(text, 'model_providers.custom', 'name')?.toLowerCase() === 'custom' &&
     normalizeEndpoint(customEndpoint(text)) === normalizeEndpoint(endpoint) &&
     tableStringValue(text, 'model_providers.custom', 'wire_api')?.toLowerCase() === 'responses' &&
@@ -63,5 +74,5 @@ export function validApiConfig(text: string, endpoint: string): boolean {
 }
 
 export function validCodexConfig(text: string): boolean {
-  return rootProvider(text)?.toLowerCase() !== 'custom' && rootStringValue(text, 'model')?.toLowerCase() !== 'gpt-5.6-sol' && !tableExists(text, 'model_providers.custom')
+  return rootProvider(text)?.toLowerCase() !== 'custom' && !tableExists(text, 'model_providers.custom')
 }

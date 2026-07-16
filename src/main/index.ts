@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, Tray } from 'el
 import { execFileSync } from 'node:child_process'
 import { appendFile, mkdir, readFile, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
+import { normalizeModelReasoningEffort } from '../shared/types'
 import type { Account, AccountInput, AppSettings, AppSnapshot, ImportResult, UsageResult } from '../shared/types'
 import { findCurrentAccountId } from './account-match'
 import { AccountStore } from './store'
@@ -220,6 +221,8 @@ function inputFromImport(raw: unknown): AccountInput | undefined {
     accountId: String(item.accountId ?? item.account_id ?? '') || undefined,
     accessToken: String(item.accessToken ?? item.access_token ?? auth?.access_token ?? '') || undefined,
     apiKey, apiEndpoint: String(item.apiEndpoint ?? item.api_endpoint ?? item.base_url ?? '') || undefined,
+    apiModel: String(item.apiModel ?? item.model ?? '') || undefined,
+    modelReasoningEffort: mode === 'api' ? normalizeModelReasoningEffort(item.modelReasoningEffort ?? item.model_reasoning_effort) : undefined,
     authTokens: auth, fiveHourWeekPercent: Number(item.fiveHourWeekPercent ?? item.five_hour_week_percent ?? 16)
   }
 }

@@ -2,6 +2,8 @@
 
 基于 Electron、Vite、React 和 TypeScript 的本地 Codex 额度与账号管理面板，支持 Windows、macOS 和 Linux。
 
+API 模式账号可分别配置端点、密钥、模型和推理强度。模型默认使用 `gpt-5.6-sol`，`model_reasoning_effort` 默认使用 `high`。
+
 ## 环境要求
 
 - Git
