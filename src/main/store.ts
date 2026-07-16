@@ -1,7 +1,6 @@
 import { app, safeStorage } from 'electron'
-import { spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { copyFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { Account, AccountInput, AppSettings, PublicAccount, SecretValue } from '../shared/types'
 
@@ -24,23 +23,15 @@ function number(value: unknown, fallback: number): number {
 }
 
 function secret(value: unknown): string | undefined {
-  if (typeof value === 'string') return value || undefined
   if (!value || typeof value !== 'object') return undefined
   const item = value as Partial<SecretValue>
   if (!item.value) return undefined
   if (item.encoding === 'plain') return item.value
-  if (item.encoding === 'safe-storage' || item.encoding === 'dpapi') {
+  if (item.encoding === 'safe-storage') {
     try {
       return safeStorage.decryptString(Buffer.from(item.value, 'base64')) || undefined
     } catch (error) {
-      if (item.encoding !== 'dpapi' || process.platform !== 'win32') {
-        console.error(`无法解密 ${item.encoding} 数据`, error)
-        return undefined
-      }
-      const script = "Add-Type -AssemblyName System.Security;$raw=[Console]::In.ReadToEnd();$bytes=[Convert]::FromBase64String($raw);$plain=[Security.Cryptography.ProtectedData]::Unprotect($bytes,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);[Console]::Out.Write([Text.Encoding]::UTF8.GetString($plain))"
-      const migrated = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { input: item.value, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 })
-      if (migrated.status === 0 && migrated.stdout) return migrated.stdout
-      console.error('无法迁移旧版 DPAPI 数据', migrated.stderr || error)
+      console.error('无法解密 safe-storage 数据', error)
       return undefined
     }
   }
@@ -79,63 +70,49 @@ export function identityFromTokens(tokens?: Record<string, unknown>): { accountI
 
 export class AccountStore {
   readonly path: string
-  readonly legacyPath: string
   settings: AppSettings = { ...defaults }
   accounts: Account[] = []
 
   constructor() {
     const directory = join(app.getPath('appData'), 'CodexUsagePanel')
     this.path = join(directory, 'accounts.v2.json')
-    this.legacyPath = join(directory, 'tokens.json')
   }
 
   async load(): Promise<void> {
     let data: DiskStore = { version: 2 }
-    let sourcePath = this.path
-    try { data = JSON.parse(await readFile(this.path, 'utf8')) as DiskStore } catch {
-      sourcePath = this.legacyPath
-      try { data = JSON.parse(await readFile(this.legacyPath, 'utf8')) as DiskStore } catch { /* first run */ }
-    }
+    try { data = JSON.parse(await readFile(this.path, 'utf8')) as DiskStore } catch { /* first run */ }
     const rawSettings = data.settings ?? {}
     this.settings = {
-      autoQuerySeconds: Math.max(0, Math.min(86400, number(rawSettings.autoQuerySeconds ?? rawSettings.auto_query_seconds, defaults.autoQuerySeconds))),
-      showStatusWidget: Boolean(rawSettings.showStatusWidget ?? rawSettings.show_status_widget ?? true),
-      statusWidgetPosition: (rawSettings.statusWidgetPosition ?? rawSettings.status_widget_position) as AppSettings['statusWidgetPosition']
+      autoQuerySeconds: Math.max(0, Math.min(86400, number(rawSettings.autoQuerySeconds, defaults.autoQuerySeconds))),
+      showStatusWidget: Boolean(rawSettings.showStatusWidget ?? true),
+      statusWidgetPosition: rawSettings.statusWidgetPosition as AppSettings['statusWidgetPosition']
     }
     const rawAccounts = data.accounts ?? []
     this.accounts = rawAccounts.map((item) => this.fromDisk(item)).filter((item): item is Account => Boolean(item))
-    if (sourcePath === this.legacyPath && rawAccounts.length) {
-      await copyFile(this.legacyPath, `${this.legacyPath}.python-backup`).catch(() => undefined)
-      if (!this.accounts.length) throw new Error(`无法解密旧版账号数据，原文件已保留：${this.legacyPath}.python-backup`)
-    }
-    await this.save()
   }
 
   private fromDisk(item: Record<string, unknown>): Account | undefined {
-    const accessToken = secret(item.accessToken ?? item.access_token)
-    const apiKey = secret(item.apiKey ?? item.api_key)
-    const mode = text(item.accountMode, item.account_mode) === 'api' || apiKey ? 'api' : 'codex'
+    const accessToken = secret(item.accessToken)
+    const apiKey = secret(item.apiKey)
+    const mode = text(item.accountMode) === 'api' ? 'api' : 'codex'
     if (mode === 'api' ? !apiKey : !accessToken) return undefined
     let authTokens: Record<string, unknown> | undefined
-    const rawAuth = item.authTokens ?? item.auth_tokens
-    if (rawAuth && typeof rawAuth === 'object' && 'encoding' in rawAuth) {
-      const decoded = secret(rawAuth)
-      try { authTokens = decoded ? JSON.parse(decoded) : undefined } catch { /* invalid legacy value */ }
-    } else if (rawAuth && typeof rawAuth === 'object') authTokens = rawAuth as Record<string, unknown>
+    const decodedAuthTokens = secret(item.authTokens)
+    try { authTokens = decodedAuthTokens ? JSON.parse(decodedAuthTokens) : undefined } catch { /* invalid stored value */ }
     return {
       id: text(item.id) ?? randomUUID(),
       label: text(item.label) ?? (mode === 'api' ? 'API 账号' : 'Codex 账号'),
       accessToken,
       apiKey,
-      apiEndpoint: text(item.apiEndpoint, item.api_endpoint),
-      accountId: text(item.accountId, item.account_id),
+      apiEndpoint: text(item.apiEndpoint),
+      accountId: text(item.accountId),
       email: text(item.email),
       source: text(item.source) ?? 'manual',
       accountMode: mode,
       authTokens,
-      fiveHourWeekPercent: Math.max(0, Math.min(100, number(item.fiveHourWeekPercent ?? item.five_hour_week_percent, 16))),
-      addedAt: text(item.addedAt, item.added_at) ?? new Date().toISOString(),
-      updatedAt: text(item.updatedAt, item.updated_at) ?? new Date().toISOString()
+      fiveHourWeekPercent: Math.max(0, Math.min(100, number(item.fiveHourWeekPercent, 16))),
+      addedAt: text(item.addedAt) ?? new Date().toISOString(),
+      updatedAt: text(item.updatedAt) ?? new Date().toISOString()
     }
   }
 

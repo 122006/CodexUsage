@@ -1,7 +1,7 @@
 export type AccountMode = 'codex' | 'api'
 
 export interface SecretValue {
-  encoding: 'safe-storage' | 'dpapi' | 'plain'
+  encoding: 'safe-storage' | 'plain'
   value: string
 }
 
