@@ -3,8 +3,9 @@ import { execFileSync } from 'node:child_process'
 import { appendFile, mkdir, readFile, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { normalizeModelReasoningEffort } from '../shared/types'
-import type { Account, AccountInput, AppSettings, AppSnapshot, ImportResult, UsageResult } from '../shared/types'
+import type { Account, AccountInput, ApiModelQuery, AppSettings, AppSnapshot, ImportResult, UsageResult } from '../shared/types'
 import { findCurrentAccountId } from './account-match'
+import { queryApiModels } from './api-models'
 import { AccountStore } from './store'
 import { codexHome, currentAuth, hookSignalPath, importCurrentInput, installStopHook, openCodex, openPath, switchAccount } from './codex'
 import { queryResetCredits, queryUsage } from './quota'
@@ -256,6 +257,20 @@ function registerIpc(): void {
   ipcMain.handle('snapshot:get', snapshot)
   ipcMain.handle('refresh', (_event, ids?: string[]) => refreshAccounts(ids))
   ipcMain.handle('account:import-current', async () => { const account = await store.upsert(await importCurrentInput(), 'codex-auth'); await broadcast(); return store.public(account, true) })
+  ipcMain.handle('api:models', async (_event, input: ApiModelQuery) => {
+    const endpoint = typeof input?.apiEndpoint === 'string' ? input.apiEndpoint.trim() : ''
+    try {
+      let key = typeof input?.apiKey === 'string' ? input.apiKey.trim() : ''
+      if (!key && input?.storedAccountId) {
+        const account = store.get(input.storedAccountId)
+        if (account.accountMode === 'api') key = account.apiKey ?? ''
+      }
+      return await queryApiModels(endpoint, key)
+    } catch (error) {
+      await log('读取 API 模型列表失败', [`端点: ${endpoint || '未填写'}`, String(error)])
+      throw error
+    }
+  })
   ipcMain.handle('account:save', async (_event, input: AccountInput) => { const account = await store.upsert(input); await broadcast(); return store.public(account, false) })
   ipcMain.handle('account:remove', async (_event, id: string) => { await store.remove(id); results.delete(id); await broadcast() })
   ipcMain.handle('account:switch', async (_event, id: string) => { const result = await switchAccount(store.get(id)); await log('账号切换完成', [`目标: ${store.get(id).email ?? store.get(id).label}`, `Provider: ${result.targetProvider}`, `会话: ${result.changedSessions}`, `加密风险: ${result.encryptedRiskFiles}`]); await broadcast(); return result })

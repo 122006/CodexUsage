@@ -73,6 +73,10 @@ button.primary:hover { background: #1166b8; }
 .segmented button.active { position: relative; color: #096fc2; background: #edf7ff; border-color: #1682d4; }
 .suffix { display: flex; align-items: center; gap: 6px; }
 .suffix i { font-style: normal; color: #60717a; }
+.model-picker { display: grid; grid-template-columns: minmax(0, 1fr) 34px; gap: 6px; align-items: start; }
+.model-picker .model-refresh { height: 32px; min-height: 32px; border-color: #cbd5da; }
+.model-picker small { grid-column: 1 / -1; color: #527064; font-size: 11px; line-height: 14px; }
+.model-picker small.lookup-error { color: #bf3434; }
 .form footer, .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 5px; }
 .error { margin: 0; color: #bf3434; font-size: 12px; }
 .transfer-list { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 14px 18px 10px; border-bottom: 1px solid #e5eaec; font-size: 12px; }

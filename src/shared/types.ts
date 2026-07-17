@@ -88,6 +88,12 @@ export interface AccountInput {
   authTokens?: Record<string, unknown>
 }
 
+export interface ApiModelQuery {
+  storedAccountId?: string
+  apiEndpoint: string
+  apiKey?: string
+}
+
 export interface ImportResult {
   imported: number
   errors: string[]
@@ -113,6 +119,7 @@ export interface LocalBridge {
   getSnapshot(): Promise<AppSnapshot>
   refresh(accountIds?: string[]): Promise<void>
   importCurrent(): Promise<PublicAccount>
+  queryApiModels(input: ApiModelQuery): Promise<string[]>
   saveAccount(input: AccountInput): Promise<PublicAccount>
   removeAccount(id: string): Promise<void>
   switchAccount(id: string): Promise<SwitchResult>

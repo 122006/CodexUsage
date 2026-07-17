@@ -74,7 +74,33 @@ function Modal({ title, children, onClose, width = 520 }: { title: string; child
 function AccountEditor({ account, onClose }: { account?: PublicAccount; onClose(): void }): JSX.Element {
   const [mode, setMode] = useState<'codex' | 'api'>(account?.accountMode ?? 'codex')
   const [busy, setBusy] = useState(false); const [error, setError] = useState('')
+  const [apiEndpoint, setApiEndpoint] = useState(account?.apiEndpoint ?? '')
+  const [apiKey, setApiKey] = useState('')
+  const [apiModel, setApiModel] = useState(account?.apiModel ?? DEFAULT_API_MODEL)
+  const [modelOptions, setModelOptions] = useState<string[]>([])
+  const [modelsBusy, setModelsBusy] = useState(false); const [modelMessage, setModelMessage] = useState('')
+  const autoModelLookup = useRef(false)
   const form = useRef<HTMLFormElement>(null)
+  const lookupModels = async (): Promise<void> => {
+    if (modelsBusy) return
+    setModelsBusy(true); setModelMessage('')
+    try {
+      const models = await window.codexUsage.queryApiModels({
+        storedAccountId: account?.accountMode === 'api' ? account.id : undefined,
+        apiEndpoint,
+        apiKey: apiKey || undefined
+      })
+      setModelOptions(models); setModelMessage(`已读取 ${models.length} 个模型`)
+    } catch (reason) {
+      const message = String(reason).replace(/^Error: Error invoking remote method '[^']+': Error: /, '')
+      setModelOptions([]); setModelMessage(`读取失败：${message}`)
+    } finally { setModelsBusy(false) }
+  }
+  useEffect(() => {
+    if (mode !== 'api' || account?.accountMode !== 'api' || !account.hasApiKey || !apiEndpoint || autoModelLookup.current) return
+    autoModelLookup.current = true
+    void lookupModels()
+  }, [mode, account?.id])
   const submit = async (event: React.FormEvent): Promise<void> => {
     event.preventDefault(); setBusy(true); setError('')
     const data = new FormData(form.current!); const value = (key: string): string => String(data.get(key) ?? '').trim()
@@ -90,7 +116,7 @@ function AccountEditor({ account, onClose }: { account?: PublicAccount; onClose(
   return <Modal title={account ? '编辑账号' : '添加账号'} onClose={onClose}><form ref={form} className="form" onSubmit={(event) => void submit(event)}>
     <div className="segmented"><button type="button" className={mode === 'codex' ? 'active' : ''} onClick={() => setMode('codex')}>Codex 账号</button><button type="button" className={mode === 'api' ? 'active' : ''} onClick={() => setMode('api')}>API 模式</button></div>
     <label><span>备注</span><input name="label" defaultValue={account?.label ?? ''} /></label>
-    {mode === 'codex' ? <><label><span>邮箱</span><input name="email" defaultValue={account?.email ?? ''} /></label><label><span>账户 ID</span><input name="accountId" defaultValue={account?.accountId ?? ''} /></label><label><span>Access Token</span><textarea name="accessToken" placeholder={account?.hasAccessToken ? '留空则保留现有 Token' : ''} required={!account?.hasAccessToken} /></label><label><span>5小时占周限</span><div className="suffix"><input name="ratio" type="number" min="0" max="100" step="0.1" defaultValue={account?.fiveHourWeekPercent ?? 16} /><i>%</i></div></label></> : <><label><span>API 端点</span><input name="apiEndpoint" defaultValue={account?.apiEndpoint ?? ''} required /></label><label><span>API 密钥</span><textarea name="apiKey" placeholder={account?.hasApiKey ? '留空则保留现有密钥' : ''} required={!account?.hasApiKey} /></label><label><span>模型</span><input name="apiModel" defaultValue={account?.apiModel ?? DEFAULT_API_MODEL} required /></label><label><span>接口协议</span><input name="apiWireApi" defaultValue={account?.apiWireApi ?? DEFAULT_API_WIRE_API} required /></label><label><span>推理强度</span><select name="modelReasoningEffort" defaultValue={account?.modelReasoningEffort ?? DEFAULT_MODEL_REASONING_EFFORT}>{API_REASONING_EFFORTS.map((effort) => <option key={effort} value={effort}>{effortLabels[effort]}（{effort}）</option>)}</select></label></>}
+    {mode === 'codex' ? <><label><span>邮箱</span><input name="email" defaultValue={account?.email ?? ''} /></label><label><span>账户 ID</span><input name="accountId" defaultValue={account?.accountId ?? ''} /></label><label><span>Access Token</span><textarea name="accessToken" placeholder={account?.hasAccessToken ? '留空则保留现有 Token' : ''} required={!account?.hasAccessToken} /></label><label><span>5小时占周限</span><div className="suffix"><input name="ratio" type="number" min="0" max="100" step="0.1" defaultValue={account?.fiveHourWeekPercent ?? 16} /><i>%</i></div></label></> : <><label><span>API 端点</span><input name="apiEndpoint" value={apiEndpoint} onChange={(event) => { setApiEndpoint(event.target.value); setModelOptions([]); setModelMessage('') }} required /></label><label><span>API 密钥</span><textarea name="apiKey" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setModelOptions([]); setModelMessage('') }} placeholder={account?.hasApiKey ? '留空则保留现有密钥' : ''} required={!account?.hasApiKey} /></label><label><span>模型</span><div className="model-picker"><input name="apiModel" list="api-model-options" value={apiModel} onChange={(event) => setApiModel(event.target.value)} required /><button type="button" className="icon-button model-refresh" onClick={() => void lookupModels()} disabled={modelsBusy || !apiEndpoint.trim() || (!apiKey.trim() && !(account?.accountMode === 'api' && account.hasApiKey))} title="读取模型列表" aria-label="读取模型列表"><RefreshCw size={16} className={modelsBusy ? 'spin-inline' : ''} /></button><datalist id="api-model-options">{modelOptions.map((model) => <option key={model} value={model} />)}</datalist>{modelMessage && <small className={modelMessage.startsWith('读取失败') ? 'lookup-error' : ''}>{modelMessage}</small>}</div></label><label><span>接口协议</span><input name="apiWireApi" defaultValue={account?.apiWireApi ?? DEFAULT_API_WIRE_API} required /></label><label><span>推理强度</span><select name="modelReasoningEffort" defaultValue={account?.modelReasoningEffort ?? DEFAULT_MODEL_REASONING_EFFORT}>{API_REASONING_EFFORTS.map((effort) => <option key={effort} value={effort}>{effortLabels[effort]}（{effort}）</option>)}</select></label></>}
     {error && <p className="error">{error}</p>}<footer><button type="button" onClick={onClose}>取消</button><button className="primary" disabled={busy}>{busy ? '保存中' : '保存'}</button></footer>
   </form></Modal>
 }

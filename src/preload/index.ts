@@ -1,10 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AccountInput, AppSettings, AppSnapshot, LocalBridge } from '../shared/types'
+import type { AccountInput, ApiModelQuery, AppSettings, AppSnapshot, LocalBridge } from '../shared/types'
 
 const bridge: LocalBridge = {
   getSnapshot: () => ipcRenderer.invoke('snapshot:get'),
   refresh: (accountIds?: string[]) => ipcRenderer.invoke('refresh', accountIds),
   importCurrent: () => ipcRenderer.invoke('account:import-current'),
+  queryApiModels: (input: ApiModelQuery) => ipcRenderer.invoke('api:models', input),
   saveAccount: (input: AccountInput) => ipcRenderer.invoke('account:save', input),
   removeAccount: (id: string) => ipcRenderer.invoke('account:remove', id),
   switchAccount: (id: string) => ipcRenderer.invoke('account:switch', id),
