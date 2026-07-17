@@ -13,6 +13,8 @@ import { queryResetCredits, queryUsage } from './quota'
 let mainWindow: BrowserWindow | undefined
 let widgetWindow: BrowserWindow | undefined
 let widgetReady = false
+let widgetMenuOpen = false
+let windowIcon: Electron.NativeImage | undefined
 let tray: Tray | undefined
 let quitting = false
 let autoTimer: NodeJS.Timeout | undefined
@@ -79,6 +81,35 @@ function keepWidgetOnTop(): void {
   else if (process.platform === 'darwin') widgetWindow.setAlwaysOnTop(true, 'floating')
   else widgetWindow.setAlwaysOnTop(true)
   widgetWindow.moveTop()
+}
+
+function showMainPanel(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function loadWindowIcon(): Electron.NativeImage | undefined {
+  const path = app.isPackaged ? join(process.resourcesPath, 'icon.png') : join(app.getAppPath(), 'resources', 'icon.png')
+  const icon = nativeImage.createFromPath(path)
+  return icon.isEmpty() ? undefined : icon
+}
+
+async function showWidgetContextMenu(): Promise<void> {
+  if (widgetMenuOpen || !widgetWindow || widgetWindow.isDestroyed()) return
+  widgetMenuOpen = true
+  try {
+    const id = await currentId()
+    const account = id ? store.accounts.find((item) => item.id === id) : undefined
+    const menu = Menu.buildFromTemplate([
+      { label: '刷新当前', enabled: Boolean(account?.accountMode === 'codex' && id && !refreshing.has(id)), click: () => { if (id) void refreshAccounts([id]) } },
+      { label: '打开面板', click: showMainPanel }
+    ])
+    menu.popup({ window: widgetWindow, callback: () => { widgetMenuOpen = false } })
+  } catch (error) {
+    widgetMenuOpen = false
+    await log('打开悬浮窗菜单失败', [String(error)])
+  }
 }
 
 async function snapshot(): Promise<AppSnapshot> {
@@ -176,6 +207,7 @@ function load(window: BrowserWindow, type?: string): void {
 function createWindows(): void {
   mainWindow = new BrowserWindow({
     width: 920, height: 690, minWidth: 720, minHeight: 520, show: true, backgroundColor: '#f4f6f8',
+    icon: windowIcon,
     title: 'Codex 额度面板', webPreferences: { preload: join(__dirname, '../preload/index.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false }
   })
   mainWindow.webContents.on('did-fail-load', (_event, code, description) => void log('主面板加载失败', [`${code}: ${description}`]))
@@ -193,6 +225,8 @@ function createWindows(): void {
   })
   widgetWindow.setTitle('Codex 额度浮窗')
   widgetWindow.webContents.on('did-finish-load', () => { widgetReady = true; widgetWindow?.setTitle('Codex 额度浮窗'); void broadcast() })
+  widgetWindow.webContents.on('context-menu', (event) => { event.preventDefault(); void showWidgetContextMenu() })
+  if (process.platform !== 'darwin') widgetWindow.on('system-context-menu', (event) => { event.preventDefault(); void showWidgetContextMenu() })
   keepWidgetOnTop()
   widgetWindow.on('moved', async () => { const [x, y] = widgetWindow!.getPosition(); store.settings.statusWidgetPosition = { x, y }; await store.save() })
   load(widgetWindow, 'widget')
@@ -212,9 +246,9 @@ function updateTray(value?: AppSnapshot): void {
 
 function createTray(): void {
   tray = new Tray(trayImage())
-  tray.on('double-click', () => { mainWindow?.show(); mainWindow?.focus() })
+  tray.on('double-click', showMainPanel)
   const menu = Menu.buildFromTemplate([
-    { label: '打开面板', click: () => { mainWindow?.show(); mainWindow?.focus() } },
+    { label: '打开面板', click: showMainPanel },
     { label: '打开 Codex', click: () => void openCodex().catch((error) => void log('打开 Codex 失败', [String(error)])) },
     { label: '查询全部', click: () => void refreshAccounts() },
     { label: '显示状态小工具', type: 'checkbox', checked: store.settings.showStatusWidget, click: async (item) => { store.settings.showStatusWidget = item.checked; await store.save(); await broadcast() } },
@@ -288,7 +322,7 @@ function registerIpc(): void {
   ipcMain.handle('codex:open', openCodex)
   ipcMain.handle('log:open', async () => { await appendFile(logPath, ''); await openPath(logPath) })
   ipcMain.handle('log:open-directory', () => openPath(dirname(logPath)))
-  ipcMain.handle('panel:show', () => { mainWindow?.show(); mainWindow?.focus() })
+  ipcMain.handle('panel:show', showMainPanel)
   ipcMain.handle('panel:hide', () => mainWindow?.hide())
   ipcMain.handle('app:quit', () => { quitting = true; app.quit() })
   ipcMain.handle('widget:start-drag', () => undefined)
@@ -302,6 +336,8 @@ if (!ownsSingleInstanceLock) {
 } else {
   app.whenReady().then(async () => {
     app.setAppUserModelId('com.codex.usage-panel')
+    windowIcon = loadWindowIcon()
+    if (process.platform === 'darwin' && windowIcon) app.dock.setIcon(windowIcon)
     if (process.platform !== 'darwin') Menu.setApplicationMenu(null)
     store = new AccountStore(); await store.load(); logPath = join(dirname(store.path), 'query_errors.log')
     await appendFile(logPath, '').catch(() => undefined)
