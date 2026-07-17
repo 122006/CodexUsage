@@ -30,6 +30,7 @@ const MIME_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.woff2': 'font/woff2'
 }
+const FIRST_LOCAL_PORT = 64991
 
 function cookieValue(request: IncomingMessage, name: string): string | undefined {
   const cookies = request.headers.cookie?.split(';') ?? []
@@ -148,10 +149,23 @@ export async function startLocalHttpServer(options: ServerOptions): Promise<Loca
     } catch { response.writeHead(404); response.end('Not found') }
   })
 
-  await new Promise<void>((resolvePromise, reject) => {
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolvePromise() })
-  })
+  let selectedPort: number | undefined
+  for (let port = FIRST_LOCAL_PORT; port <= 65535; port += 1) {
+    try {
+      await new Promise<void>((resolvePromise, reject) => {
+        const onError = (error: Error): void => { server.off('listening', onListening); reject(error) }
+        const onListening = (): void => { server.off('error', onError); resolvePromise() }
+        server.once('error', onError)
+        server.once('listening', onListening)
+        server.listen(port, '127.0.0.1')
+      })
+      selectedPort = port
+      break
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error
+    }
+  }
+  if (!selectedPort) throw new Error(`端口 ${FIRST_LOCAL_PORT}-65535 均已被占用`)
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('无法确定本地 HTTP 服务端口')
   localUrl = `http://127.0.0.1:${address.port}`
