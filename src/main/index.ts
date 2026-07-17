@@ -72,6 +72,14 @@ function moveWidgetToWorkArea(): void {
   widgetWindow.setPosition(Math.round(x), Math.round(y), false)
 }
 
+function keepWidgetOnTop(): void {
+  if (!widgetWindow || widgetWindow.isDestroyed()) return
+  if (process.platform === 'win32') widgetWindow.setAlwaysOnTop(true, 'screen-saver')
+  else if (process.platform === 'darwin') widgetWindow.setAlwaysOnTop(true, 'floating')
+  else widgetWindow.setAlwaysOnTop(true)
+  widgetWindow.moveTop()
+}
+
 async function snapshot(): Promise<AppSnapshot> {
   const active = await currentId()
   const resultObject = Object.fromEntries(results)
@@ -94,6 +102,7 @@ async function broadcast(): Promise<void> {
       moveWidgetToWorkArea()
       widgetWindow.showInactive()
     }
+    if (showWidget) keepWidgetOnTop()
     if (!showWidget && widgetWindow.isVisible()) widgetWindow.hide()
   }
   updateTray(value)
@@ -183,7 +192,7 @@ function createWindows(): void {
   })
   widgetWindow.setTitle('Codex 额度浮窗')
   widgetWindow.webContents.on('did-finish-load', () => { widgetReady = true; widgetWindow?.setTitle('Codex 额度浮窗'); void broadcast() })
-  widgetWindow.setAlwaysOnTop(true, 'floating')
+  keepWidgetOnTop()
   widgetWindow.on('moved', async () => { const [x, y] = widgetWindow!.getPosition(); store.settings.statusWidgetPosition = { x, y }; await store.save() })
   load(widgetWindow, 'widget')
 }
