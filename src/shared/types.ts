@@ -129,6 +129,7 @@ export interface LocalBridge {
   getResetCreditDetail(id: string): Promise<ResetCreditDetail>
   installHook(): Promise<string>
   openCodex(): Promise<void>
+  openBrowser(): Promise<void>
   openLog(): Promise<void>
   openLogDirectory(): Promise<void>
   showPanel(): Promise<void>

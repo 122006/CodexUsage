@@ -3,6 +3,7 @@ import type { JSX } from 'react'
 import { Check, Clipboard, Copy, Download, ExternalLink, FileText, LogOut, MoreHorizontal, Plus, RefreshCw, Settings, Upload, X } from 'lucide-react'
 import { API_REASONING_EFFORTS, DEFAULT_API_MODEL, DEFAULT_API_WIRE_API, DEFAULT_MODEL_REASONING_EFFORT, normalizeModelReasoningEffort } from '../../shared/types'
 import type { AccountInput, AppSnapshot, ModelReasoningEffort, PublicAccount, ResetCreditDetail, UsageResult, UsageWindow } from '../../shared/types'
+import { codexUsage } from './bridge'
 import { calculateQuotaSlices, quotaSectorPath } from './quota'
 
 const empty: AppSnapshot = { accounts: [], results: {}, settings: { autoQuerySeconds: 900, showStatusWidget: true }, refreshingIds: [], logPath: '', codexHome: '' }
@@ -10,7 +11,7 @@ const effortLabels: Record<ModelReasoningEffort, string> = { minimal: '最低', 
 
 function useSnapshot(): AppSnapshot {
   const [value, setValue] = useState(empty)
-  useEffect(() => { void window.codexUsage.getSnapshot().then(setValue); return window.codexUsage.onSnapshot(setValue) }, [])
+  useEffect(() => { void codexUsage.getSnapshot().then(setValue); return codexUsage.onSnapshot(setValue) }, [])
   return value
 }
 
@@ -85,7 +86,7 @@ function AccountEditor({ account, onClose }: { account?: PublicAccount; onClose(
     if (modelsBusy) return
     setModelsBusy(true); setModelMessage('')
     try {
-      const models = await window.codexUsage.queryApiModels({
+      const models = await codexUsage.queryApiModels({
         storedAccountId: account?.accountMode === 'api' ? account.id : undefined,
         apiEndpoint,
         apiKey: apiKey || undefined
@@ -111,7 +112,7 @@ function AccountEditor({ account, onClose }: { account?: PublicAccount; onClose(
       modelReasoningEffort: normalizeModelReasoningEffort(value('modelReasoningEffort')),
       fiveHourWeekPercent: Number(value('ratio') || 16)
     }
-    try { await window.codexUsage.saveAccount(input); onClose() } catch (reason) { setError(String(reason)) } finally { setBusy(false) }
+    try { await codexUsage.saveAccount(input); onClose() } catch (reason) { setError(String(reason)) } finally { setBusy(false) }
   }
   return <Modal title={account ? '编辑账号' : '添加账号'} onClose={onClose}><form ref={form} className="form" onSubmit={(event) => void submit(event)}>
     <div className="segmented"><button type="button" className={mode === 'codex' ? 'active' : ''} onClick={() => setMode('codex')}>Codex 账号</button><button type="button" className={mode === 'api' ? 'active' : ''} onClick={() => setMode('api')}>API 模式</button></div>
@@ -123,14 +124,14 @@ function AccountEditor({ account, onClose }: { account?: PublicAccount; onClose(
 
 function TransferDialog({ onClose }: { onClose(): void }): JSX.Element {
   const [text, setText] = useState(''); const [status, setStatus] = useState(''); const [selected, setSelected] = useState<string[]>([]); const snapshot = useSnapshot()
-  const exportData = async (): Promise<void> => { const value = await window.codexUsage.exportAccounts(selected.length ? selected : undefined); setText(value); setStatus('已生成导出内容') }
-  const importData = async (): Promise<void> => { const result = await window.codexUsage.importText(text); setStatus(`已导入 ${result.imported} 个账号${result.errors.length ? `；${result.errors.join('；')}` : ''}`) }
+  const exportData = async (): Promise<void> => { const value = await codexUsage.exportAccounts(selected.length ? selected : undefined); setText(value); setStatus('已生成导出内容') }
+  const importData = async (): Promise<void> => { const result = await codexUsage.importText(text); setStatus(`已导入 ${result.imported} 个账号${result.errors.length ? `；${result.errors.join('；')}` : ''}`) }
   return <Modal title="导入与导出" onClose={onClose} width={650}><div className="transfer-list">{snapshot.accounts.map((account) => <label key={account.id}><input type="checkbox" checked={selected.includes(account.id)} onChange={(event) => setSelected((old) => event.target.checked ? [...old, account.id] : old.filter((id) => id !== account.id))} />{account.email ?? account.apiEndpoint ?? account.accountId ?? '未命名账号'}</label>)}</div><textarea className="transfer-text" value={text} onChange={(event) => setText(event.target.value)} placeholder="导出内容或待导入的多个账号 JSON" />{status && <p className="status-line">{status}</p>}<footer className="dialog-actions"><button onClick={() => void navigator.clipboard.readText().then(setText)}><Clipboard size={15} />读取剪贴板</button><button onClick={() => void exportData()}><Download size={15} />生成导出</button><button onClick={() => void navigator.clipboard.writeText(text)}><Copy size={15} />复制</button><button className="primary" onClick={() => void importData()}><Upload size={15} />导入</button></footer></Modal>
 }
 
 function ResetTooltip({ account }: { account: PublicAccount }): JSX.Element {
   const [detail, setDetail] = useState<ResetCreditDetail>(); const [error, setError] = useState('')
-  useEffect(() => { void window.codexUsage.getResetCreditDetail(account.id).then(setDetail).catch((reason) => setError(String(reason))) }, [account.id])
+  useEffect(() => { void codexUsage.getResetCreditDetail(account.id).then(setDetail).catch((reason) => setError(String(reason))) }, [account.id])
   if (error) return <div className="reset-tooltip">读取失败：{error}</div>
   if (!detail) return <div className="reset-tooltip">读取中...</div>
   return <div className="reset-tooltip"><div>可用次数：{detail.availableCount ?? '--'}</div><div>总计已成功邀请次数：{detail.totalSuccessfulReferrals ?? '--'}</div>{detail.grants.length ? detail.grants.map((item, index) => <div key={index}>获取于：{displayDate(item.grantedAt)}　过期于：{displayDate(item.expiresAt)}</div>) : <div>没有可显示的重置记录</div>}</div>
@@ -138,8 +139,8 @@ function ResetTooltip({ account }: { account: PublicAccount }): JSX.Element {
 
 function AccountRow({ account, result, refreshing, onEdit }: { account: PublicAccount; result?: UsageResult; refreshing: boolean; onEdit(): void }): JSX.Element {
   const [menu, setMenu] = useState(false); const [tooltip, setTooltip] = useState(false); const five = limit(result, '5h'); const week = limit(result, '7d')
-  const remove = async (): Promise<void> => { if (confirm(`确定删除 ${account.email ?? account.label} 吗？`)) await window.codexUsage.removeAccount(account.id) }
-  const switchTo = async (): Promise<void> => { if (!confirm(`确定切换到 ${account.email ?? account.apiEndpoint ?? account.label} 并重启 Codex 吗？`)) return; try { const value = await window.codexUsage.switchAccount(account.id); const warning = value.encryptedRiskFiles ? `\n${value.encryptedRiskFiles} 个会话包含加密内容。` : ''; alert(`${value.message}\n已同步 ${value.changedSessions} 个会话。${warning}`) } catch (error) { alert(`切换失败：${String(error)}`) } }
+  const remove = async (): Promise<void> => { if (confirm(`确定删除 ${account.email ?? account.label} 吗？`)) await codexUsage.removeAccount(account.id) }
+  const switchTo = async (): Promise<void> => { if (!confirm(`确定切换到 ${account.email ?? account.apiEndpoint ?? account.label} 并重启 Codex 吗？`)) return; try { const value = await codexUsage.switchAccount(account.id); const warning = value.encryptedRiskFiles ? `\n${value.encryptedRiskFiles} 个会话包含加密内容。` : ''; alert(`${value.message}\n已同步 ${value.changedSessions} 个会话。${warning}`) } catch (error) { alert(`切换失败：${String(error)}`) } }
   return <article className={`account-row ${account.current ? 'current' : ''}`} onContextMenu={(event) => { event.preventDefault(); setMenu(true) }}>
     <div className="account-cell"><div className="account-label" title={account.label}>{account.label || '未命名账号'}</div><div title={account.email ?? account.apiEndpoint}>{account.email ?? (account.accountMode === 'api' ? account.apiEndpoint : '--')}</div></div>
     <div className="subscription-cell">{(result?.planType ?? (account.accountMode === 'api' ? 'api' : '--')).toLowerCase()}</div>
@@ -147,18 +148,18 @@ function AccountRow({ account, result, refreshing, onEdit }: { account: PublicAc
     <div className="reset-cell" onMouseEnter={() => !account.accountMode.includes('api') && setTooltip(true)} onMouseLeave={() => setTooltip(false)}>{result?.resetCredits === undefined ? '--次重置' : `${result.resetCredits}次重置`}{tooltip && <ResetTooltip account={account} />}</div>
     <div className="action-cell">{account.current ? <span className="current-label"><Check size={14} />当前账号</span> : <button className="switch-button" onClick={() => void switchTo()}>切换账号</button>}<button className="icon-button" title="更多操作" onClick={() => setMenu(!menu)}><MoreHorizontal size={18} /></button></div>
     <Spinner visible={refreshing} />
-    {menu && <><div className="menu-shield" onClick={() => setMenu(false)} /><div className="row-menu"><button onClick={() => { setMenu(false); void window.codexUsage.refresh([account.id]) }}><RefreshCw size={14} />刷新</button><button onClick={() => { setMenu(false); onEdit() }}><Settings size={14} />编辑</button><button className="danger" onClick={() => { setMenu(false); void remove() }}><X size={14} />删除</button></div></>}
+    {menu && <><div className="menu-shield" onClick={() => setMenu(false)} /><div className="row-menu"><button onClick={() => { setMenu(false); void codexUsage.refresh([account.id]) }}><RefreshCw size={14} />刷新</button><button onClick={() => { setMenu(false); onEdit() }}><Settings size={14} />编辑</button><button className="danger" onClick={() => { setMenu(false); void remove() }}><X size={14} />删除</button></div></>}
   </article>
 }
 
 function Panel({ snapshot }: { snapshot: AppSnapshot }): JSX.Element {
   const [editor, setEditor] = useState<PublicAccount | 'new'>(); const [transfer, setTransfer] = useState(false); const [appMenu, setAppMenu] = useState(false); const [notice, setNotice] = useState('')
   const allRefreshing = snapshot.refreshingIds.length > 0
-  const installHook = async (): Promise<void> => { try { const path = await window.codexUsage.installHook(); setNotice(`Hook 已写入：${path}`) } catch (error) { setNotice(`Hook 安装失败：${String(error)}`) } }
-  const launchCodex = async (): Promise<void> => { try { await window.codexUsage.openCodex(); setNotice('已发送打开 Codex 请求') } catch (error) { setNotice(`打开 Codex 失败：${String(error)}`) } }
+  const installHook = async (): Promise<void> => { try { const path = await codexUsage.installHook(); setNotice(`Hook 已写入：${path}`) } catch (error) { setNotice(`Hook 安装失败：${String(error)}`) } }
+  const launchCodex = async (): Promise<void> => { try { await codexUsage.openCodex(); setNotice('已发送打开 Codex 请求') } catch (error) { setNotice(`打开 Codex 失败：${String(error)}`) } }
   return <main className="panel-shell">
-    <header className="topbar"><div><h1>Codex 额度</h1><span>{snapshot.accounts.length} 个账号</span></div><nav><button title="打开 Codex" onClick={() => void launchCodex()}><ExternalLink size={16} />打开 Codex</button><button title="导入当前 Codex" onClick={() => void window.codexUsage.importCurrent()}><Download size={16} />导入当前 Codex</button><button title="导入与导出" onClick={() => setTransfer(true)}><Upload size={16} />导入与导出</button><button className="primary" onClick={() => setEditor('new')}><Plus size={16} />添加账号</button><button className="icon-button" title="菜单" onClick={() => setAppMenu(!appMenu)}><MoreHorizontal size={20} /></button>{appMenu && <><div className="menu-shield" onClick={() => setAppMenu(false)} /><div className="app-menu"><button onClick={() => { setAppMenu(false); void installHook() }}>安装完成刷新 Hook</button><button onClick={() => { setAppMenu(false); void window.codexUsage.openLog() }}><FileText size={14} />打开错误日志</button><button onClick={() => { setAppMenu(false); void window.codexUsage.openLogDirectory() }}>打开日志目录</button><button className="danger" onClick={() => void window.codexUsage.quit()}><LogOut size={14} />退出程序</button></div></>}</nav></header>
-    <section className="controls"><button className="refresh-button" disabled={allRefreshing} onClick={() => void window.codexUsage.refresh()}><RefreshCw size={16} className={allRefreshing ? 'spin-inline' : ''} />{allRefreshing ? '刷新中' : '刷新全部'}</button><label>自动查询间隔<input type="number" min="0" max="86400" value={snapshot.settings.autoQuerySeconds} onChange={(event) => void window.codexUsage.updateSettings({ autoQuerySeconds: Number(event.target.value) })} /><span>秒</span></label><label className="toggle"><input type="checkbox" checked={snapshot.settings.showStatusWidget} onChange={(event) => void window.codexUsage.updateSettings({ showStatusWidget: event.target.checked })} /><i />显示状态小工具</label></section>
+    <header className="topbar"><div><h1>Codex 额度</h1><span>{snapshot.accounts.length} 个账号</span></div><nav><button title="打开 Codex" onClick={() => void launchCodex()}><ExternalLink size={16} />打开 Codex</button><button title="导入当前 Codex" onClick={() => void codexUsage.importCurrent()}><Download size={16} />导入当前 Codex</button><button title="导入与导出" onClick={() => setTransfer(true)}><Upload size={16} />导入与导出</button><button className="primary" onClick={() => setEditor('new')}><Plus size={16} />添加账号</button><button className="icon-button" title="菜单" onClick={() => setAppMenu(!appMenu)}><MoreHorizontal size={20} /></button>{appMenu && <><div className="menu-shield" onClick={() => setAppMenu(false)} /><div className="app-menu"><button onClick={() => { setAppMenu(false); void codexUsage.openBrowser() }}><ExternalLink size={14} />在浏览器中打开</button><button onClick={() => { setAppMenu(false); void installHook() }}>安装完成刷新 Hook</button><button onClick={() => { setAppMenu(false); void codexUsage.openLog() }}><FileText size={14} />打开错误日志</button><button onClick={() => { setAppMenu(false); void codexUsage.openLogDirectory() }}>打开日志目录</button><button className="danger" onClick={() => void codexUsage.quit()}><LogOut size={14} />退出程序</button></div></>}</nav></header>
+    <section className="controls"><button className="refresh-button" disabled={allRefreshing} onClick={() => void codexUsage.refresh()}><RefreshCw size={16} className={allRefreshing ? 'spin-inline' : ''} />{allRefreshing ? '刷新中' : '刷新全部'}</button><label>自动查询间隔<input type="number" min="0" max="86400" value={snapshot.settings.autoQuerySeconds} onChange={(event) => void codexUsage.updateSettings({ autoQuerySeconds: Number(event.target.value) })} /><span>秒</span></label><label className="toggle"><input type="checkbox" checked={snapshot.settings.showStatusWidget} onChange={(event) => void codexUsage.updateSettings({ showStatusWidget: event.target.checked })} /><i />显示状态小工具</label></section>
     <section className="account-list"><div className="list-header"><span>备注 / 邮箱</span><span>订阅</span><span>5小时 / 周限</span><span>重置</span><span>操作</span></div>{snapshot.accounts.length ? snapshot.accounts.map((account) => <AccountRow key={account.id} account={account} result={snapshot.results[account.id]} refreshing={snapshot.refreshingIds.includes(account.id)} onEdit={() => setEditor(account)} />) : <div className="empty-state">暂无账号</div>}</section>
     <footer className="statusbar"><span>总计：Plus 周限剩余平均值 {percent(snapshot.plusWeekAverage)}</span>{notice && <span className="notice" title={notice}>{notice}</span>}<span>数据存储于本机</span></footer>
     {editor && <AccountEditor account={editor === 'new' ? undefined : editor} onClose={() => setEditor(undefined)} />}{transfer && <TransferDialog onClose={() => setTransfer(false)} />}

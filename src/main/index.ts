@@ -1,11 +1,13 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, Tray } from 'electron'
+import { app, BrowserWindow, Menu, nativeImage, screen, shell, Tray } from 'electron'
 import { execFileSync } from 'node:child_process'
 import { appendFile, mkdir, readFile, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { normalizeModelReasoningEffort } from '../shared/types'
-import type { Account, AccountInput, ApiModelQuery, AppSettings, AppSnapshot, ImportResult, UsageResult } from '../shared/types'
+import type { Account, AccountInput, AppSnapshot, ImportResult, LocalBridge, UsageResult } from '../shared/types'
 import { findCurrentAccountId } from './account-match'
 import { queryApiModels } from './api-models'
+import { startLocalHttpServer } from './http-server'
+import type { LocalHttpServer } from './http-server'
 import { AccountStore } from './store'
 import { codexHome, currentAuth, hookSignalPath, importCurrentInput, installStopHook, openCodex, openPath, switchAccount } from './codex'
 import { queryResetCredits, queryUsage } from './quota'
@@ -15,6 +17,8 @@ let widgetWindow: BrowserWindow | undefined
 let widgetReady = false
 let widgetMenuOpen = false
 let windowIcon: Electron.NativeImage | undefined
+let httpServer: LocalHttpServer | undefined
+let browserUrl = ''
 let tray: Tray | undefined
 let quitting = false
 let autoTimer: NodeJS.Timeout | undefined
@@ -85,8 +89,14 @@ function keepWidgetOnTop(): void {
 
 function showMainPanel(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.show()
   mainWindow.focus()
+}
+
+async function openBrowserPage(): Promise<void> {
+  if (!browserUrl) throw new Error('本地 HTTP 服务尚未启动')
+  await shell.openExternal(browserUrl)
 }
 
 function loadWindowIcon(): Electron.NativeImage | undefined {
@@ -126,7 +136,7 @@ async function snapshot(): Promise<AppSnapshot> {
 
 async function broadcast(): Promise<void> {
   const value = await snapshot()
-  for (const window of [mainWindow, widgetWindow]) if (window && !window.isDestroyed()) window.webContents.send('snapshot', value)
+  httpServer?.publish(value)
   const active = value.accounts.find((account) => account.current)
   const showWidget = widgetReady && value.settings.showStatusWidget && active?.accountMode === 'codex'
   if (widgetWindow && !widgetWindow.isDestroyed()) {
@@ -193,22 +203,17 @@ function scheduleHookPoll(): void {
   }, 2000)
 }
 
-function appUrl(windowType?: string): { url?: string; file?: string; query?: Record<string, string> } {
-  const query = windowType ? { window: windowType } : undefined
-  if (process.env.ELECTRON_RENDERER_URL) return { url: `${process.env.ELECTRON_RENDERER_URL}${windowType ? `?window=${windowType}` : ''}` }
-  return { file: join(__dirname, '../renderer/index.html'), query }
-}
-
 function load(window: BrowserWindow, type?: string): void {
-  const target = appUrl(type)
-  if (target.url) void window.loadURL(target.url); else void window.loadFile(target.file!, { query: target.query })
+  const target = new URL(browserUrl)
+  if (type) target.searchParams.set('window', type)
+  void window.loadURL(target.toString())
 }
 
 function createWindows(): void {
   mainWindow = new BrowserWindow({
     width: 920, height: 690, minWidth: 720, minHeight: 520, show: true, backgroundColor: '#f4f6f8',
     icon: windowIcon,
-    title: 'Codex 额度面板', webPreferences: { preload: join(__dirname, '../preload/index.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false }
+    title: 'Codex 额度面板', webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false }
   })
   mainWindow.webContents.on('did-fail-load', (_event, code, description) => void log('主面板加载失败', [`${code}: ${description}`]))
   mainWindow.webContents.on('render-process-gone', (_event, details) => void log('主面板渲染进程退出', [JSON.stringify(details)]))
@@ -221,7 +226,7 @@ function createWindows(): void {
   widgetWindow = new BrowserWindow({
     width: 300, height: 76, x: saved?.x ?? display.x + display.width - 312, y: saved?.y ?? display.y + display.height - 88,
     frame: false, transparent: true, backgroundColor: '#00000000', resizable: false, alwaysOnTop: true, skipTaskbar: true, hasShadow: false, show: false,
-    webPreferences: { preload: join(__dirname, '../preload/index.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false }
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false }
   })
   widgetWindow.setTitle('Codex 额度浮窗')
   widgetWindow.webContents.on('did-finish-load', () => { widgetReady = true; widgetWindow?.setTitle('Codex 额度浮窗'); void broadcast() })
@@ -249,6 +254,7 @@ function createTray(): void {
   tray.on('double-click', showMainPanel)
   const menu = Menu.buildFromTemplate([
     { label: '打开面板', click: showMainPanel },
+    { label: '在浏览器中打开', click: () => void openBrowserPage().catch((error) => void log('打开浏览器页面失败', [String(error)])) },
     { label: '打开 Codex', click: () => void openCodex().catch((error) => void log('打开 Codex 失败', [String(error)])) },
     { label: '查询全部', click: () => void refreshAccounts() },
     { label: '显示状态小工具', type: 'checkbox', checked: store.settings.showStatusWidget, click: async (item) => { store.settings.showStatusWidget = item.checked; await store.save(); await broadcast() } },
@@ -287,45 +293,48 @@ function inputFromImport(raw: unknown): AccountInput | undefined {
   }
 }
 
-function registerIpc(): void {
-  ipcMain.handle('snapshot:get', snapshot)
-  ipcMain.handle('refresh', (_event, ids?: string[]) => refreshAccounts(ids))
-  ipcMain.handle('account:import-current', async () => { const account = await store.upsert(await importCurrentInput(), 'codex-auth'); await broadcast(); return store.public(account, true) })
-  ipcMain.handle('api:models', async (_event, input: ApiModelQuery) => {
-    const endpoint = typeof input?.apiEndpoint === 'string' ? input.apiEndpoint.trim() : ''
-    try {
-      let key = typeof input?.apiKey === 'string' ? input.apiKey.trim() : ''
-      if (!key && input?.storedAccountId) {
-        const account = store.get(input.storedAccountId)
-        if (account.accountMode === 'api') key = account.apiKey ?? ''
+function createOperations(): Omit<LocalBridge, 'onSnapshot'> {
+  return {
+    getSnapshot: snapshot,
+    refresh: refreshAccounts,
+    importCurrent: async () => { const account = await store.upsert(await importCurrentInput(), 'codex-auth'); await broadcast(); return store.public(account, true) },
+    queryApiModels: async (input) => {
+      const endpoint = typeof input?.apiEndpoint === 'string' ? input.apiEndpoint.trim() : ''
+      try {
+        let key = typeof input?.apiKey === 'string' ? input.apiKey.trim() : ''
+        if (!key && input?.storedAccountId) {
+          const account = store.get(input.storedAccountId)
+          if (account.accountMode === 'api') key = account.apiKey ?? ''
+        }
+        return await queryApiModels(endpoint, key)
+      } catch (error) {
+        await log('读取 API 模型列表失败', [`端点: ${endpoint || '未填写'}`, String(error)])
+        throw error
       }
-      return await queryApiModels(endpoint, key)
-    } catch (error) {
-      await log('读取 API 模型列表失败', [`端点: ${endpoint || '未填写'}`, String(error)])
-      throw error
-    }
-  })
-  ipcMain.handle('account:save', async (_event, input: AccountInput) => { const account = await store.upsert(input); await broadcast(); return store.public(account, false) })
-  ipcMain.handle('account:remove', async (_event, id: string) => { await store.remove(id); results.delete(id); await broadcast() })
-  ipcMain.handle('account:switch', async (_event, id: string) => { const result = await switchAccount(store.get(id)); await log('账号切换完成', [`目标: ${store.get(id).email ?? store.get(id).label}`, `Provider: ${result.targetProvider}`, `会话: ${result.changedSessions}`, `加密风险: ${result.encryptedRiskFiles}`]); await broadcast(); return result })
-  ipcMain.handle('account:import-text', async (_event, value: string): Promise<ImportResult> => {
-    const errors: string[] = []; let raw: unknown
-    try { raw = JSON.parse(value) } catch { raw = value.split(/\r?\n/).filter(Boolean) }
-    const items = importItems(raw); let imported = 0
-    for (const [index, item] of items.entries()) { const input = inputFromImport(item); if (!input) { errors.push(`第 ${index + 1} 条无法识别`); continue } try { await store.upsert(input, 'clipboard'); imported += 1 } catch (error) { errors.push(`第 ${index + 1} 条：${String(error)}`) } }
-    await broadcast(); return { imported, errors }
-  })
-  ipcMain.handle('account:export', (_event, ids?: string[]) => JSON.stringify({ format: 'codex_usage_accounts', version: 2, exportedAt: new Date().toISOString(), accounts: store.accounts.filter((item) => !ids?.length || ids.includes(item.id)).map((item) => ({ ...item, lastQuery: results.get(item.id) })) }, null, 2))
-  ipcMain.handle('settings:update', async (_event, patch: Partial<AppSettings>) => { store.settings = { ...store.settings, ...patch }; await store.save(); scheduleAutoRefresh(); await broadcast(); return store.settings })
-  ipcMain.handle('reset-credits:get', (_event, id: string) => queryResetCredits(store.get(id)))
-  ipcMain.handle('hook:install', async () => installStopHook(logPath))
-  ipcMain.handle('codex:open', openCodex)
-  ipcMain.handle('log:open', async () => { await appendFile(logPath, ''); await openPath(logPath) })
-  ipcMain.handle('log:open-directory', () => openPath(dirname(logPath)))
-  ipcMain.handle('panel:show', showMainPanel)
-  ipcMain.handle('panel:hide', () => mainWindow?.hide())
-  ipcMain.handle('app:quit', () => { quitting = true; app.quit() })
-  ipcMain.handle('widget:start-drag', () => undefined)
+    },
+    saveAccount: async (input) => { const account = await store.upsert(input); await broadcast(); return store.public(account, false) },
+    removeAccount: async (id) => { await store.remove(id); results.delete(id); await broadcast() },
+    switchAccount: async (id) => { const result = await switchAccount(store.get(id)); await log('账号切换完成', [`目标: ${store.get(id).email ?? store.get(id).label}`, `Provider: ${result.targetProvider}`, `会话: ${result.changedSessions}`, `加密风险: ${result.encryptedRiskFiles}`]); await broadcast(); return result },
+    importText: async (value: string): Promise<ImportResult> => {
+      const errors: string[] = []; let raw: unknown
+      try { raw = JSON.parse(value) } catch { raw = value.split(/\r?\n/).filter(Boolean) }
+      const items = importItems(raw); let imported = 0
+      for (const [index, item] of items.entries()) { const input = inputFromImport(item); if (!input) { errors.push(`第 ${index + 1} 条无法识别`); continue } try { await store.upsert(input, 'clipboard'); imported += 1 } catch (error) { errors.push(`第 ${index + 1} 条：${String(error)}`) } }
+      await broadcast(); return { imported, errors }
+    },
+    exportAccounts: async (ids) => JSON.stringify({ format: 'codex_usage_accounts', version: 2, exportedAt: new Date().toISOString(), accounts: store.accounts.filter((item) => !ids?.length || ids.includes(item.id)).map((item) => ({ ...item, lastQuery: results.get(item.id) })) }, null, 2),
+    updateSettings: async (patch) => { store.settings = { ...store.settings, ...patch }; await store.save(); scheduleAutoRefresh(); await broadcast(); return store.settings },
+    getResetCreditDetail: async (id) => queryResetCredits(store.get(id)),
+    installHook: async () => installStopHook(logPath),
+    openCodex,
+    openBrowser: openBrowserPage,
+    openLog: async () => { await appendFile(logPath, ''); await openPath(logPath) },
+    openLogDirectory: async () => openPath(dirname(logPath)),
+    showPanel: async () => showMainPanel(),
+    hidePanel: async () => { mainWindow?.hide() },
+    quit: async () => { quitting = true; setImmediate(() => app.quit()) },
+    startWidgetDrag: async () => undefined
+  }
 }
 
 terminateOtherInstances()
@@ -337,15 +346,17 @@ if (!ownsSingleInstanceLock) {
   app.whenReady().then(async () => {
     app.setAppUserModelId('com.codex.usage-panel')
     windowIcon = loadWindowIcon()
-    if (process.platform === 'darwin' && windowIcon) app.dock.setIcon(windowIcon)
+    if (process.platform === 'darwin' && windowIcon) app.dock?.setIcon(windowIcon)
     if (process.platform !== 'darwin') Menu.setApplicationMenu(null)
     store = new AccountStore(); await store.load(); logPath = join(dirname(store.path), 'query_errors.log')
     await appendFile(logPath, '').catch(() => undefined)
-    registerIpc(); createWindows(); createTray(); scheduleAutoRefresh(); scheduleHookPoll(); await broadcast()
+    httpServer = await startLocalHttpServer({ rendererDirectory: join(__dirname, '../renderer'), rendererDevUrl: process.env.ELECTRON_RENDERER_URL, operations: createOperations() })
+    browserUrl = httpServer.url
+    createWindows(); createTray(); scheduleAutoRefresh(); scheduleHookPoll(); await broadcast()
     void refreshAccounts()
   })
 
   app.on('activate', () => { mainWindow?.show() })
-  app.on('before-quit', () => { quitting = true })
+  app.on('before-quit', () => { quitting = true; void httpServer?.close() })
   app.on('window-all-closed', () => { if (process.platform !== 'darwin' && quitting) app.quit() })
 }

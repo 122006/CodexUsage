@@ -12,16 +12,12 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
-    build: {
-      rollupOptions: {
-        input: resolve('src/preload/index.ts'),
-        output: { format: 'cjs', entryFileNames: '[name].cjs' }
-      }
-    }
+    build: { rollupOptions: { input: resolve('src/preload/index.ts'), output: { format: 'cjs', entryFileNames: '[name].cjs' } } }
   },
   renderer: {
     root: resolve('src/renderer'),
-    server: { port: rendererDevPort, strictPort: true },
+    publicDir: resolve('resources'),
+    server: { host: '127.0.0.1', port: rendererDevPort, strictPort: true },
     build: { rollupOptions: { input: resolve('src/renderer/index.html') } },
     plugins: [react()]
   }

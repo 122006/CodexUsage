@@ -25,8 +25,6 @@
     "dist:mac:arm64": "npm run build && electron-builder --mac zip --arm64 --publish never"
   },
   "dependencies": {
-    "@electron-toolkit/preload": "^3.0.2",
-    "@electron-toolkit/utils": "^4.0.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
