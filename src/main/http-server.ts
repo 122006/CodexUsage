@@ -3,7 +3,7 @@ import { readFile, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { extname, resolve, sep } from 'node:path'
-import type { AccountInput, ApiModelQuery, AppSettings, AppSnapshot, LocalBridge } from '../shared/types'
+import type { AccountInput, ApiModelQuery, AppSettings, AppSnapshot, CpaSettingsInput, LocalBridge, OperationMode } from '../shared/types'
 
 type HttpOperations = Omit<LocalBridge, 'onSnapshot'>
 
@@ -31,6 +31,7 @@ const MIME_TYPES: Record<string, string> = {
   '.woff2': 'font/woff2'
 }
 const FIRST_LOCAL_PORT = 64991
+const SESSION_HEADER = 'x-codex-usage-session'
 
 function cookieValue(request: IncomingMessage, name: string): string | undefined {
   const cookies = request.headers.cookie?.split(';') ?? []
@@ -41,6 +42,25 @@ function cookieValue(request: IncomingMessage, name: string): string | undefined
     }
   }
   return undefined
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]' || hostname === '::1'
+}
+
+function isAllowedOrigin(origin: string | undefined, localUrl: string, devOrigin?: string): boolean {
+  if (!origin || origin === localUrl || origin === devOrigin) return true
+  try {
+    const source = new URL(origin)
+    const target = new URL(localUrl)
+    return source.protocol === target.protocol && source.port === target.port && isLoopbackHost(source.hostname) && isLoopbackHost(target.hostname)
+  } catch { return false }
+}
+
+function requestSession(request: IncomingMessage, requestUrl: URL, cookieName: string): string | undefined {
+  const header = request.headers[SESSION_HEADER]
+  const headerValue = Array.isArray(header) ? header[0] : header
+  return headerValue || cookieValue(request, cookieName) || (requestUrl.pathname === '/api/events' ? requestUrl.searchParams.get('session') ?? undefined : undefined)
 }
 
 async function body(request: IncomingMessage): Promise<Record<string, unknown>> {
@@ -76,7 +96,7 @@ export async function startLocalHttpServer(options: ServerOptions): Promise<Loca
   const server = createServer(async (request, response) => {
     const requestUrl = new URL(request.url ?? '/', localUrl || 'http://127.0.0.1')
     const origin = request.headers.origin
-    const allowedOrigin = !origin || origin === localUrl || origin === devOrigin
+    const allowedOrigin = isAllowedOrigin(origin, localUrl, devOrigin)
     if (origin && allowedOrigin) {
       response.setHeader('Access-Control-Allow-Origin', origin)
       response.setHeader('Access-Control-Allow-Credentials', 'true')
@@ -84,12 +104,18 @@ export async function startLocalHttpServer(options: ServerOptions): Promise<Loca
     }
     if (request.method === 'OPTIONS') {
       if (!allowedOrigin) { response.writeHead(403); response.end(); return }
-      response.writeHead(204, { 'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' })
+      response.writeHead(204, { 'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS', 'Access-Control-Allow-Headers': `Content-Type, ${SESSION_HEADER}` })
       response.end(); return
     }
 
     if (requestUrl.pathname.startsWith('/api/')) {
-      if (!allowedOrigin || cookieValue(request, cookieName) !== session) { json(response, 403, { error: '本地会话无效，请从 CodexUsage 重新打开浏览器页面' }); return }
+      if (request.method === 'GET' && requestUrl.pathname === '/api/session') {
+        if (!allowedOrigin) { json(response, 403, { error: `不允许的页面来源：${origin ?? '未知'}` }); return }
+        response.setHeader('Set-Cookie', `${cookieName}=${encodeURIComponent(session)}; HttpOnly; SameSite=Strict; Path=/`)
+        return json(response, 200, { session })
+      }
+      if (!allowedOrigin) { json(response, 403, { error: `不允许的页面来源：${origin ?? '未知'}` }); return }
+      if (requestSession(request, requestUrl, cookieName) !== session) { json(response, 403, { error: '本地会话无效，请从 CodexUsage 重新打开浏览器页面' }); return }
       try {
         if (request.method === 'GET' && requestUrl.pathname === '/api/events') {
           response.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive' })
@@ -99,15 +125,25 @@ export async function startLocalHttpServer(options: ServerOptions): Promise<Loca
           return
         }
         if (request.method === 'GET' && requestUrl.pathname === '/api/snapshot') return json(response, 200, await options.operations.getSnapshot())
+        if (request.method === 'GET' && requestUrl.pathname === '/api/token-usage/daily') return json(response, 200, await options.operations.getDailyTokenUsage())
         if (request.method === 'POST' && requestUrl.pathname === '/api/refresh') { const input = await body(request); return json(response, 200, await options.operations.refresh(input.accountIds as string[] | undefined)) }
         if (request.method === 'POST' && requestUrl.pathname === '/api/accounts/import-current') return json(response, 200, await options.operations.importCurrent())
         if (request.method === 'POST' && requestUrl.pathname === '/api/models') return json(response, 200, await options.operations.queryApiModels(await body(request) as unknown as ApiModelQuery))
         if (request.method === 'POST' && requestUrl.pathname === '/api/accounts/save') return json(response, 200, await options.operations.saveAccount(await body(request) as unknown as AccountInput))
         if (request.method === 'POST' && requestUrl.pathname === '/api/accounts/import-text') { const input = await body(request); return json(response, 200, await options.operations.importText(String(input.text ?? ''))) }
         if (request.method === 'POST' && requestUrl.pathname === '/api/accounts/export') { const input = await body(request); return json(response, 200, { value: await options.operations.exportAccounts(input.ids as string[] | undefined) }) }
+        if (request.method === 'POST' && requestUrl.pathname === '/api/accounts/reorder') { const input = await body(request); return json(response, 200, await options.operations.reorderAccounts(input.ids as string[] ?? [])) }
         if (request.method === 'PATCH' && requestUrl.pathname === '/api/settings') return json(response, 200, await options.operations.updateSettings(await body(request) as Partial<AppSettings>))
+        if (request.method === 'PATCH' && requestUrl.pathname === '/api/cpa/settings') return json(response, 200, await options.operations.updateCpaSettings(await body(request) as CpaSettingsInput))
+        if (request.method === 'POST' && requestUrl.pathname === '/api/cpa/test') return json(response, 200, await options.operations.testCpaConnection())
+        if (request.method === 'GET' && requestUrl.pathname === '/api/cpa/inventory') return json(response, 200, await options.operations.inspectCpa())
+        if (request.method === 'GET' && requestUrl.pathname === '/api/cpa/traffic') return json(response, 200, await options.operations.getCpaTraffic())
+        if (request.method === 'POST' && requestUrl.pathname === '/api/cpa/sync') return json(response, 200, await options.operations.syncCpaAccounts())
+        if (request.method === 'POST' && requestUrl.pathname === '/api/cpa/migrate') { const input = await body(request); return json(response, 200, await options.operations.migrateCpaLegacy(String(input.loopbackAccountId ?? ''))) }
+        if (request.method === 'POST' && requestUrl.pathname === '/api/cpa/mode') { const input = await body(request); return json(response, 200, await options.operations.setOperationMode(input.mode as OperationMode)) }
         if (request.method === 'POST' && requestUrl.pathname === '/api/hook/install') return json(response, 200, { value: await options.operations.installHook() })
         if (request.method === 'POST' && requestUrl.pathname === '/api/codex/open') return json(response, 200, await options.operations.openCodex())
+        if (request.method === 'POST' && requestUrl.pathname === '/api/codex/repair-sessions') return json(response, 200, { repaired: await options.operations.repairCodexSessions() })
         if (request.method === 'POST' && requestUrl.pathname === '/api/browser/open') return json(response, 200, await options.operations.openBrowser())
         if (request.method === 'POST' && requestUrl.pathname === '/api/log/open') return json(response, 200, await options.operations.openLog())
         if (request.method === 'POST' && requestUrl.pathname === '/api/log/open-directory') return json(response, 200, await options.operations.openLogDirectory())
@@ -116,12 +152,15 @@ export async function startLocalHttpServer(options: ServerOptions): Promise<Loca
         if (request.method === 'POST' && requestUrl.pathname === '/api/widget/start-drag') return json(response, 200, await options.operations.startWidgetDrag())
         if (request.method === 'POST' && requestUrl.pathname === '/api/app/quit') return json(response, 200, await options.operations.quit())
 
-        const accountMatch = requestUrl.pathname.match(/^\/api\/accounts\/([^/]+)(?:\/(switch|reset-credits))?$/)
+        const accountMatch = requestUrl.pathname.match(/^\/api\/accounts\/([^/]+)(?:\/(switch|refresh-credential|import-cpa|reset-credits|subscription))?$/)
         if (accountMatch) {
           const id = decodeURIComponent(accountMatch[1]); const action = accountMatch[2]
           if (request.method === 'DELETE' && !action) return json(response, 200, await options.operations.removeAccount(id))
           if (request.method === 'POST' && action === 'switch') return json(response, 200, await options.operations.switchAccount(id))
+          if (request.method === 'POST' && action === 'refresh-credential') { const input = await body(request); return json(response, 200, await options.operations.refreshCredential(id, input.sourceMode as OperationMode)) }
+          if (request.method === 'POST' && action === 'import-cpa') return json(response, 200, await options.operations.importCpaAccount(id))
           if (request.method === 'GET' && action === 'reset-credits') return json(response, 200, await options.operations.getResetCreditDetail(id))
+          if (request.method === 'GET' && action === 'subscription') return json(response, 200, await options.operations.getSubscriptionDetail(id))
         }
         json(response, 404, { error: '接口不存在' })
       } catch (error) { json(response, 500, { error: errorMessage(error) }) }

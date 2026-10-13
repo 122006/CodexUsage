@@ -1,8 +1,10 @@
-import type { Account, ResetCreditDetail, UsageResult, UsageWindow } from '../shared/types'
+import type { Account, ResetCreditDetail, SubscriptionDetail, UsageResult, UsageWindow } from '../shared/types'
 import { net } from 'electron'
+import { quotaAllowsRecovery } from './quota-availability'
 
 const USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage'
 const RESET_URL = 'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits'
+const SUBSCRIPTION_URL = 'https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27'
 
 function headers(account: Account): Record<string, string> {
   const result: Record<string, string> = { Authorization: `Bearer ${account.accessToken}`, 'User-Agent': 'codex-cli', Accept: 'application/json' }
@@ -77,6 +79,7 @@ async function once(account: Account): Promise<UsageResult> {
     accountId: account.id, statusCode: response.status, windows, queriedAt,
     resetCredits: Number.isFinite(resetCredits) ? resetCredits : undefined,
     planType: typeof payload.plan_type === 'string' ? payload.plan_type : undefined,
+    quotaAvailable: quotaAllowsRecovery(payload),
     error: !windows.length ? '响应中没有额度窗口数据' : !recognized ? `响应中没有 5小时或周限窗口数据（解析到：${windows.map((item) => item.name).join(', ')}）` : undefined
   }
 }
@@ -102,6 +105,69 @@ export async function queryResetCredits(account: Account): Promise<ResetCreditDe
     availableCount: Number.isFinite(Number(data.available_count)) ? Number(data.available_count) : undefined,
     totalSuccessfulReferrals: Number.isFinite(Number(data.total_earned_count)) ? Number(data.total_earned_count) : undefined,
     grants: credits.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')).map((item) => ({ grantedAt: typeof item.granted_at === 'string' ? item.granted_at : undefined, expiresAt: typeof item.expires_at === 'string' ? item.expires_at : undefined })),
+    fetchedAt: new Date().toISOString()
+  }
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+function optionalText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function optionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+export async function querySubscription(account: Account): Promise<SubscriptionDetail> {
+  if (account.accountMode === 'api') throw new Error('API 模式没有 ChatGPT 订阅信息')
+  if (!account.accessToken) throw new Error('缺少 access_token')
+
+  let response: Awaited<ReturnType<typeof net.fetch>> | undefined
+  let body = ''
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      response = await net.fetch(SUBSCRIPTION_URL, { headers: headers(account), signal: AbortSignal.timeout(20_000) })
+      body = await response.text()
+      if (response.ok) break
+      if (!attempt && response.status === 403) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        continue
+      }
+      throw new Error(`HTTP ${response.status}: ${errorText(body)}`)
+    } catch (error) {
+      if (!attempt) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        continue
+      }
+      throw error
+    }
+  }
+  if (!response?.ok) throw new Error(`HTTP ${response?.status ?? 0}: ${errorText(body)}（已重试 1 次）`)
+
+  const payload = objectValue(JSON.parse(body))
+  const accounts = objectValue(payload?.accounts)
+  const selected = objectValue(account.accountId ? accounts?.[account.accountId] : undefined) ?? objectValue(accounts?.default) ??
+    Object.values(accounts ?? {}).map(objectValue).find(Boolean)
+  if (!selected) throw new Error('响应中没有当前账号的订阅信息')
+  const accountInfo = objectValue(selected.account)
+  const entitlement = objectValue(selected.entitlement)
+  const lastActive = objectValue(selected.last_active_subscription)
+  if (!entitlement) throw new Error('响应中没有 entitlement 订阅权益数据')
+
+  return {
+    planType: optionalText(accountInfo?.plan_type),
+    subscriptionPlan: optionalText(entitlement.subscription_plan),
+    hasActiveSubscription: optionalBoolean(entitlement.has_active_subscription),
+    expiresAt: optionalText(entitlement.expires_at),
+    renewsAt: optionalText(entitlement.renews_at),
+    cancelsAt: optionalText(entitlement.cancels_at),
+    billingPeriod: optionalText(entitlement.billing_period),
+    willRenew: optionalBoolean(lastActive?.will_renew),
+    purchaseOriginPlatform: optionalText(lastActive?.purchase_origin_platform),
+    isDelinquent: optionalBoolean(entitlement.is_delinquent),
     fetchedAt: new Date().toISOString()
   }
 }
